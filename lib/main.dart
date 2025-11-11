@@ -18,34 +18,30 @@ class PledgeLoanApp extends StatefulWidget {
 }
 
 class _PledgeLoanAppState extends State<PledgeLoanApp> {
-  // This key is used to force a refresh of the app state
   Key _appKey = UniqueKey();
 
   Future<String?> _checkLoginStatus() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    // Use 'token' to match main_scaffold.dart
-    String? token = prefs.getString('token');
+    String? token = prefs.getString('jwt_token'); // Use jwt_token to match your code
 
     if (token != null) {
-      // Check if token is expired
       try {
         if (Jwt.isExpired(token)) {
-          await prefs.remove('token');
-          await prefs.remove('role'); // <-- ADD THIS
-          return null; // Token is expired, treat as logged out
+          await prefs.remove('jwt_token');
+          await prefs.remove('role'); // Also clear role
+          return null;
         }
-        return token; // Token is valid
+        return token;
       } catch (e) {
-        await prefs.remove('token');
-        await prefs.remove('role'); // <-- ADD THIS
-        return null; // Token is invalid, treat as logged out
+        await prefs.remove('jwt_token');
+        await prefs.remove('role');
+        return null;
       }
     }
-    return null; // No token found
+    return null;
   }
 
   void _onStateChange() {
-    // This function is called by LoginPage or MainScaffold to trigger a rebuild
     setState(() {
       _appKey = UniqueKey();
     });
@@ -77,24 +73,21 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
       home: FutureBuilder<String?>(
         future: _checkLoginStatus(),
         builder: (context, snapshot) {
-          // While checking, show a loading screen
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Scaffold(
               body: Center(child: CircularProgressIndicator()),
             );
           }
 
-          // If token exists (snapshot has data), show the main app
           if (snapshot.hasData && snapshot.data != null) {
             return MainScaffold(onLogout: () async {
               SharedPreferences prefs = await SharedPreferences.getInstance();
-              await prefs.remove('token'); // Use 'token'
-              await prefs.remove('role'); // <-- ADD THIS
+              await prefs.remove('jwt_token');
+              await prefs.remove('role'); // Make sure role is cleared on logout
               _onStateChange();
             });
           }
 
-          // Otherwise, show the LoginPage
           return LoginPage(onLoginSuccess: _onStateChange);
         },
       ),
@@ -112,6 +105,7 @@ class LoginPage extends StatefulWidget {
   _LoginPageState createState() => _LoginPageState();
 }
 
+// --- ALL YOUR LOGIN LOGIC IS NOW INSIDE THIS CLASS ---
 class _LoginPageState extends State<LoginPage> {
   bool _isAdmin = true;
   final TextEditingController _usernameController = TextEditingController();
@@ -123,6 +117,7 @@ class _LoginPageState extends State<LoginPage> {
 
   final String apiUrl = 'https://pledge-loan-api-as.onrender.com/api/auth/login';
 
+  // --- THIS IS THE NEW, CORRECTLY PLACED _login FUNCTION ---
   Future<void> _login() async {
     setState(() { _isLoading = true; _message = ''; });
 
@@ -141,48 +136,56 @@ class _LoginPageState extends State<LoginPage> {
       if (response.statusCode == 200) {
         final String token = responseData['token'];
 
-        try {
-          // --- THIS IS THE FIX ---
-          // Your backend sends the role
-          // inside the 'user' object. We'll use that.
-          final String actualRole = responseData['user']['role'];
-          // --- END FIX ---
-
-          String expectedRole = _isAdmin ? 'admin' : 'staff';
-
-          if (actualRole == expectedRole) {
-            SharedPreferences prefs = await SharedPreferences.getInstance();
-            await prefs.setString('jwt_token', token);
-            await prefs.setString('role', actualRole); // <-- Save the correct role
-
-            widget.onLoginSuccess();
-
-          } else {
-            setState(() {
-              _message = 'Login Failed: You do not have "$expectedRole" privileges.';
-            });
-          }
-        } catch (e) {
+        // --- THE FIX ---
+        // Read the role from the 'user' object your backend is sending
+        if (responseData['user'] == null || responseData['user']['role'] == null) {
           setState(() {
-            _message = 'Login Failed: Invalid token or user data received.';
+            _message = 'Login Failed: Server response is missing user data.';
+          });
+          return;
+        }
+
+        final String actualRole = responseData['user']['role'];
+        // --- END FIX ---
+
+        String expectedRole = _isAdmin ? 'admin' : 'staff';
+
+        if (actualRole == expectedRole) {
+          // Success! Save both token and role
+          SharedPreferences prefs = await SharedPreferences.getInstance();
+          await prefs.setString('jwt_token', token);
+          await prefs.setString('role', actualRole); // <-- This saves the role
+
+          // Call the success callback to rebuild the app
+          widget.onLoginSuccess();
+
+        } else {
+          // Role mismatch (e.g., trying to log in as 'admin' with 'staff' credentials)
+          setState(() {
+            _message = 'Login Failed: You do not have "$expectedRole" privileges.';
           });
         }
       } else {
+        // Handle 401, 400, etc.
         setState(() {
           _message = 'Login Failed: ${responseData['message'] ?? responseData['error'] ?? 'Invalid credentials.'}';
         });
       }
     } catch (e) {
+      // Handle network errors or JSON parsing errors
       setState(() {
-        _message = 'Error: Could not connect to the server.';
+        _message = 'Error: Could not connect to the server or parse response.';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) { // Check if the widget is still in the tree
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
+  // --- YOUR ORIGINAL build METHOD, NOW IN THE CORRECT PLACE ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -193,14 +196,12 @@ class _LoginPageState extends State<LoginPage> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              // 1. Your Logo
               Image.asset(
                 'assets/images/sri_kubera_logo.png',
                 height: 150,
                 fit: BoxFit.contain,
               ),
               const SizedBox(height: 32.0),
-
               Text(
                 'Sri KuberaLakshmi Bankers',
                 textAlign: TextAlign.center,
@@ -215,19 +216,15 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 32.0),
-
-              // 2. The Admin/Staff Toggle
               _buildLoginToggle(),
               const SizedBox(height: 24.0),
-
-              // 3. Username Field
               Text(
                 'Username',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8.0),
               TextField(
-                controller: _usernameController,
+                controller: _usernameController, // Now this variable is found
                 keyboardType: TextInputType.text,
                 decoration: InputDecoration(
                   hintText: 'Enter your username',
@@ -241,16 +238,14 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 16.0),
-
-              // 4. Password Field
               Text(
                 'Password',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8.0),
               TextField(
-                controller: _passwordController,
-                obscureText: _obscurePassword,
+                controller: _passwordController, // Now this variable is found
+                obscureText: _obscurePassword, // Now this variable is found
                 decoration: InputDecoration(
                   hintText: 'Enter your password',
                   prefixIcon: const Icon(Icons.lock_outline),
@@ -273,15 +268,13 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 16.0),
-
-              // 5. Remember Me / Forgot Password Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
                       Checkbox(
-                        value: _rememberMe,
+                        value: _rememberMe, // Now this variable is found
                         onChanged: (value) {
                           setState(() {
                             _rememberMe = value ?? false;
@@ -300,12 +293,10 @@ class _LoginPageState extends State<LoginPage> {
                 ],
               ),
               const SizedBox(height: 24.0),
-
-              // 6. Login Button
               SizedBox(
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _login,
+                  onPressed: _isLoading ? null : _login, // Now these variables are found
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _isAdmin ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.secondary,
                     foregroundColor: Colors.white,
@@ -326,9 +317,7 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 16.0),
-
-              // 7. Error Message Display
-              if (_message.isNotEmpty)
+              if (_message.isNotEmpty) // Now this variable is found
                 Padding(
                   padding: const EdgeInsets.only(top: 8.0),
                   child: Text(
@@ -347,7 +336,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // --- This is the custom toggle widget ---
+  // --- YOUR ORIGINAL toggle WIDGET, NOW IN THE CORRECT PLACE ---
   Widget _buildLoginToggle() {
     return Container(
       width: double.infinity,
@@ -358,20 +347,20 @@ class _LoginPageState extends State<LoginPage> {
       ),
       child: Stack(
         children: [
-          // Animated background
           AnimatedAlign(
             alignment: _isAdmin ? Alignment.centerLeft : Alignment.centerRight,
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeInOut,
             child: Container(
-              width: MediaQuery.of(context).size.width / 2 - 24, // Half width minus padding
+              width: MediaQuery.of(context).size.width / 2 - 24,
               height: 50,
               decoration: BoxDecoration(
                 color: _isAdmin ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.secondary,
                 borderRadius: BorderRadius.circular(25),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    // Fix for deprecated 'withOpacity'
+                    color: Colors.black.withAlpha(26), // 0.1 opacity
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   ),
@@ -379,7 +368,6 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
           ),
-          // Row with the text buttons
           Row(
             children: [
               Expanded(
@@ -390,7 +378,7 @@ class _LoginPageState extends State<LoginPage> {
                     });
                   },
                   child: Container(
-                    color: Colors.transparent, // Makes the full area tappable
+                    color: Colors.transparent,
                     alignment: Alignment.center,
                     child: Text(
                       'Admin',
@@ -410,7 +398,7 @@ class _LoginPageState extends State<LoginPage> {
                     });
                   },
                   child: Container(
-                    color: Colors.transparent, // Makes the full area tappable
+                    color: Colors.transparent,
                     alignment: Alignment.center,
                     child: Text(
                       'Staff',
@@ -428,4 +416,4 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
-}
+} // <-- This is the correct closing brace for _LoginPageState
