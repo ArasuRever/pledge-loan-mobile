@@ -23,18 +23,21 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
 
   Future<String?> _checkLoginStatus() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? token = prefs.getString('jwt_token');
+    // Use 'token' to match main_scaffold.dart
+    String? token = prefs.getString('token');
 
     if (token != null) {
       // Check if token is expired
       try {
         if (Jwt.isExpired(token)) {
-          await prefs.remove('jwt_token');
+          await prefs.remove('token');
+          await prefs.remove('role'); // <-- ADD THIS
           return null; // Token is expired, treat as logged out
         }
         return token; // Token is valid
       } catch (e) {
-        await prefs.remove('jwt_token');
+        await prefs.remove('token');
+        await prefs.remove('role'); // <-- ADD THIS
         return null; // Token is invalid, treat as logged out
       }
     }
@@ -85,7 +88,8 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
           if (snapshot.hasData && snapshot.data != null) {
             return MainScaffold(onLogout: () async {
               SharedPreferences prefs = await SharedPreferences.getInstance();
-              await prefs.remove('jwt_token');
+              await prefs.remove('token'); // Use 'token'
+              await prefs.remove('role'); // <-- ADD THIS
               _onStateChange();
             });
           }
@@ -138,15 +142,19 @@ class _LoginPageState extends State<LoginPage> {
         final String token = responseData['token'];
 
         try {
-          Map<String, dynamic> payload = Jwt.parseJwt(token);
-          String actualRole = payload['role'];
+          // --- THIS IS THE FIX ---
+          // Your backend sends the role
+          // inside the 'user' object. We'll use that.
+          final String actualRole = responseData['user']['role'];
+          // --- END FIX ---
+
           String expectedRole = _isAdmin ? 'admin' : 'staff';
 
           if (actualRole == expectedRole) {
             SharedPreferences prefs = await SharedPreferences.getInstance();
             await prefs.setString('jwt_token', token);
+            await prefs.setString('role', actualRole); // <-- Save the correct role
 
-            // Call the success callback to rebuild the app
             widget.onLoginSuccess();
 
           } else {
@@ -156,7 +164,7 @@ class _LoginPageState extends State<LoginPage> {
           }
         } catch (e) {
           setState(() {
-            _message = 'Login Failed: Invalid token received from server.';
+            _message = 'Login Failed: Invalid token or user data received.';
           });
         }
       } else {
