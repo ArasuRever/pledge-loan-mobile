@@ -106,6 +106,7 @@ class LoginPage extends StatefulWidget {
 }
 
 // --- ALL YOUR LOGIN LOGIC IS NOW INSIDE THIS CLASS ---
+// --- Replace your entire _LoginPageState class with this ---
 class _LoginPageState extends State<LoginPage> {
   bool _isAdmin = true;
   final TextEditingController _usernameController = TextEditingController();
@@ -137,7 +138,7 @@ class _LoginPageState extends State<LoginPage> {
         final String token = responseData['token'];
 
         // --- THE FIX ---
-        // Read the role from the 'user' object your backend is sending
+        // Read the role from the 'user' object your backend is now sending
         if (responseData['user'] == null || responseData['user']['role'] == null) {
           setState(() {
             _message = 'Login Failed: Server response is missing user data.';
@@ -160,7 +161,7 @@ class _LoginPageState extends State<LoginPage> {
           widget.onLoginSuccess();
 
         } else {
-          // Role mismatch (e.g., trying to log in as 'admin' with 'staff' credentials)
+          // Role mismatch
           setState(() {
             _message = 'Login Failed: You do not have "$expectedRole" privileges.';
           });
@@ -177,7 +178,7 @@ class _LoginPageState extends State<LoginPage> {
         _message = 'Error: Could not connect to the server or parse response.';
       });
     } finally {
-      if (mounted) { // Check if the widget is still in the tree
+      if (mounted) {
         setState(() {
           _isLoading = false;
         });
@@ -185,7 +186,7 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // --- YOUR ORIGINAL build METHOD, NOW IN THE CORRECT PLACE ---
+  // --- YOUR ORIGINAL build METHOD, UNCHANGED ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -224,7 +225,7 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 8.0),
               TextField(
-                controller: _usernameController, // Now this variable is found
+                controller: _usernameController,
                 keyboardType: TextInputType.text,
                 decoration: InputDecoration(
                   hintText: 'Enter your username',
@@ -244,8 +245,8 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 8.0),
               TextField(
-                controller: _passwordController, // Now this variable is found
-                obscureText: _obscurePassword, // Now this variable is found
+                controller: _passwordController,
+                obscureText: _obscurePassword,
                 decoration: InputDecoration(
                   hintText: 'Enter your password',
                   prefixIcon: const Icon(Icons.lock_outline),
@@ -274,7 +275,7 @@ class _LoginPageState extends State<LoginPage> {
                   Row(
                     children: [
                       Checkbox(
-                        value: _rememberMe, // Now this variable is found
+                        value: _rememberMe,
                         onChanged: (value) {
                           setState(() {
                             _rememberMe = value ?? false;
@@ -296,7 +297,7 @@ class _LoginPageState extends State<LoginPage> {
               SizedBox(
                 height: 50,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _login, // Now these variables are found
+                  onPressed: _isLoading ? null : _login,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: _isAdmin ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.secondary,
                     foregroundColor: Colors.white,
@@ -317,7 +318,7 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 16.0),
-              if (_message.isNotEmpty) // Now this variable is found
+              if (_message.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8.0),
                   child: Text(
@@ -336,7 +337,7 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // --- YOUR ORIGINAL toggle WIDGET, NOW IN THE CORRECT PLACE ---
+  // --- YOUR ORIGINAL toggle WIDGET, UNCHANGED ---
   Widget _buildLoginToggle() {
     return Container(
       width: double.infinity,
@@ -359,7 +360,6 @@ class _LoginPageState extends State<LoginPage> {
                 borderRadius: BorderRadius.circular(25),
                 boxShadow: [
                   BoxShadow(
-                    // Fix for deprecated 'withOpacity'
                     color: Colors.black.withAlpha(26), // 0.1 opacity
                     blurRadius: 4,
                     offset: const Offset(0, 2),

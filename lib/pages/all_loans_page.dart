@@ -1,7 +1,8 @@
 // lib/pages/all_loans_page.dart
 import 'package:flutter/material.dart';
-import 'package:pledge_loan_mobile/models/loan_model.dart'; // <-- THE FIX
-import 'package:pledge_loan_mobile/services/api_service.dart'; // <-- THE FIX
+import 'package:pledge_loan_mobile/models/loan_model.dart';
+import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'package:pledge_loan_mobile/pages/loan_detail_page.dart'; // <-- 1. IMPORT NEW PAGE
 
 class AllLoansPage extends StatefulWidget {
   const AllLoansPage({super.key});
@@ -18,6 +19,9 @@ class _AllLoansPageState extends State<AllLoansPage> {
   List<Loan> _allLoans = [];
   List<Loan> _filteredLoans = [];
 
+  final List<String> _statusFilters = ['all', 'active', 'overdue', 'paid', 'forfeited'];
+  String _selectedStatusFilter = 'all';
+
   @override
   void initState() {
     super.initState();
@@ -30,7 +34,7 @@ class _AllLoansPageState extends State<AllLoansPage> {
       final loans = await _apiService.getLoans();
       setState(() {
         _allLoans = loans;
-        _filteredLoans = loans;
+        _filterLoans();
       });
       return loans;
     } catch (e) {
@@ -42,6 +46,10 @@ class _AllLoansPageState extends State<AllLoansPage> {
     final searchTerm = _searchController.text.toLowerCase();
     setState(() {
       _filteredLoans = _allLoans.where((loan) {
+        final statusMatch = _selectedStatusFilter == 'all' ||
+            loan.status == _selectedStatusFilter;
+        if (!statusMatch) return false;
+        if (searchTerm.isEmpty) return true;
         final nameMatch = loan.customerName.toLowerCase().contains(searchTerm);
         final phoneMatch = loan.phoneNumber?.contains(searchTerm) ?? false;
         final bookMatch = loan.bookLoanNumber?.toLowerCase().contains(searchTerm) ?? false;
@@ -70,6 +78,8 @@ class _AllLoansPageState extends State<AllLoansPage> {
     final future = _loadLoans();
     setState(() {
       _loansFuture = future;
+      _selectedStatusFilter = 'all';
+      _searchController.clear();
     });
     await future;
   }
@@ -97,7 +107,35 @@ class _AllLoansPageState extends State<AllLoansPage> {
                   : null,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          SizedBox(
+            height: 40,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: _statusFilters.map((status) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: ChoiceChip(
+                    label: Text(status[0].toUpperCase() + status.substring(1)),
+                    selected: _selectedStatusFilter == status,
+                    onSelected: (isSelected) {
+                      if (isSelected) {
+                        setState(() {
+                          _selectedStatusFilter = status;
+                          _filterLoans();
+                        });
+                      }
+                    },
+                    selectedColor: Theme.of(context).primaryColor,
+                    labelStyle: TextStyle(
+                      color: _selectedStatusFilter == status ? Colors.white : Colors.black,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          const SizedBox(height: 12),
           Expanded(
             child: FutureBuilder<List<Loan>>(
               future: _loansFuture,
@@ -120,7 +158,7 @@ class _AllLoansPageState extends State<AllLoansPage> {
                 return RefreshIndicator(
                   onRefresh: _handleRefresh,
                   child: _filteredLoans.isEmpty
-                      ? const Center(child: Text('No loans match your search.'))
+                      ? const Center(child: Text('No loans match your filters.'))
                       : ListView.builder(
                     itemCount: _filteredLoans.length,
                     itemBuilder: (context, index) {
@@ -138,10 +176,16 @@ class _AllLoansPageState extends State<AllLoansPage> {
                               fontSize: 12,
                             ),
                           ),
+                          // --- 2. UPDATE THE ONTAP ---
                           onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Tapped on Loan #${loan.id}')),
-                            );
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => LoanDetailPage(loanId: loan.id),
+                              ),
+                            ).then((_) {
+                              // This re-runs the load/filter when you come back
+                              _handleRefresh();
+                            });
                           },
                         ),
                       );

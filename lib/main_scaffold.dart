@@ -20,7 +20,7 @@ class _MainScaffoldState extends State<MainScaffold> {
   String? _userRole;
   bool _isLoading = true;
 
-  // We will build these lists *after* we know the user's role
+  // We will now build these lists *after* we know the user's role
   List<Widget> _widgetOptions = [];
   List<BottomNavigationBarItem> _navBarItems = [];
 
@@ -32,6 +32,7 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   Future<void> _loadRoleAndBuildUI() async {
     final prefs = await SharedPreferences.getInstance();
+    // Use 'role' to match what we saved in main.dart
     final role = prefs.getString('role');
 
     if (role == null) {
