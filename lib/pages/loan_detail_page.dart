@@ -106,17 +106,9 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- 2. UPDATE MENU HANDLER TO NAVIGATE ---
+  // --- CHANGED (1/3): Removed 'add_principal' logic from this menu handler ---
   void _onMenuSelected(String value, LoanDetail loan) {
-    if (value == 'add_principal') {
-      if (loan.status == 'active' || loan.status == 'overdue') {
-        _showAddPrincipalDialog();
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cannot add principal to a ${loan.status} loan.')),
-        );
-      }
-    } else if (value == 'edit_loan') {
+    if (value == 'edit_loan') {
       // Navigate to the new page and wait for a result
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -147,6 +139,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
             icon: const Icon(Icons.refresh),
             onPressed: _loadLoanDetails,
           ),
+          // --- CHANGED (2/3): Replaced PopupMenu with a simple Edit IconButton ---
           FutureBuilder<LoanDetail>(
               future: _loanDetailFuture,
               builder: (context, snapshot) {
@@ -154,20 +147,15 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                   return const SizedBox.shrink();
                 }
                 final loan = snapshot.data!;
-                return PopupMenuButton<String>(
-                  // --- 3. PASS THE 'loan' OBJECT TO THE HANDLER ---
-                  onSelected: (value) => _onMenuSelected(value, loan),
-                  itemBuilder: (BuildContext context) => [
-                    const PopupMenuItem<String>(
-                      value: 'add_principal',
-                      child: Text('Add Principal (Disburse)'),
-                    ),
-                    const PopupMenuItem<String>(
-                      value: 'edit_loan',
-                      child: Text('Edit Loan Details'),
-                    ),
-                  ],
-                );
+                // Only show edit button if loan is not closed
+                if (loan.status == 'active' || loan.status == 'overdue') {
+                  return IconButton(
+                    icon: const Icon(Icons.edit),
+                    tooltip: 'Edit Loan Details',
+                    onPressed: () => _onMenuSelected('edit_loan', loan),
+                  );
+                }
+                return const SizedBox.shrink(); // No edit button if paid/forfeited
               }
           ),
         ],
@@ -204,6 +192,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                     _buildItemDetailsCard(loan),
                     const SizedBox(height: 20),
                     _buildTransactionsList(loan.transactions),
+                    // Add some space at the bottom so the buttons don't hide content
+                    const SizedBox(height: 80),
                   ],
                 ),
               ),
@@ -215,9 +205,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // ... in lib/pages/loan_detail_page.dart
-
-  // --- REPLACE THIS FUNCTION ---
+  // ... (unchanged)
   Widget _buildLoanSummaryCard(LoanDetail loan) {
     // Get the calculated stats
     final stats = loan.calculated;
@@ -282,6 +270,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
+  // ... (unchanged)
   Widget _buildItemDetailsCard(LoanDetail loan) {
     // ... (unchanged)
     return Card(
@@ -303,8 +292,9 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
+  // --- CHANGED (3/3): Added 'Add Principal' button to the bottom bar ---
   Widget _buildActionButtons(LoanDetail loan) {
-    // ... (unchanged)
+    // This check is still valid: only show buttons for active/overdue loans
     if (loan.status != 'active' && loan.status != 'overdue') {
       return const SizedBox.shrink();
     }
@@ -323,6 +313,18 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
       ),
       child: Row(
         children: [
+          // THE NEWLY ADDED BUTTON
+          Expanded(
+            child: ElevatedButton(
+              onPressed: _showAddPrincipalDialog,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange, // A distinct color
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
+              child: const Text('Add Principal', style: TextStyle(color: Colors.white)),
+            ),
+          ),
+          const SizedBox(width: 12), // Spacing
           Expanded(
             child: ElevatedButton(
               onPressed: _showAddPaymentDialog,
@@ -333,7 +335,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
               child: const Text('Add Payment', style: TextStyle(color: Colors.white)),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12), // Spacing
           Expanded(
             child: ElevatedButton(
               onPressed: _showSettleLoanDialog,
@@ -349,6 +351,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
+  // ... (unchanged)
   Widget _buildTransactionsList(List<Transaction> transactions) {
     // ... (unchanged)
     if (transactions.isEmpty) {
@@ -402,12 +405,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // ... in lib/pages/loan_detail_page.dart
-
-  // --- REPLACE THIS FUNCTION ---
-  // ... in lib/pages/loan_detail_page.dart
-
-  // --- REPLACE THIS FUNCTION ---
+  // ... (unchanged)
   Widget _buildDetailRow(String label, String value, {Color? valueColor, bool isTotal = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),

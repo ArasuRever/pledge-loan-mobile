@@ -121,7 +121,7 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> addPayment({
+  Future<void> addPayment({
     required int loanId,
     required String amount,
     required String paymentType,
@@ -142,7 +142,7 @@ class ApiService {
     );
 
     if (response.statusCode == 201) {
-      return jsonDecode(response.body);
+      return;
     } else {
       debugPrint('Failed to add payment. Status: ${response.statusCode}');
       debugPrint('Response body: ${response.body}');
