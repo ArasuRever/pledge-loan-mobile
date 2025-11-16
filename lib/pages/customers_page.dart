@@ -1,47 +1,56 @@
 // lib/pages/customers_page.dart
 import 'package:flutter/material.dart';
-import 'package:pledge_loan_mobile/services/api_service.dart'; // <-- THE FIX
-import 'package:pledge_loan_mobile/models/customer_model.dart'; // <-- THE FIX
+import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'package:pledge_loan_mobile/models/customer_model.dart';
+// TODO: We will create this page in Step 3
+// import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
 
 class CustomersPage extends StatefulWidget {
+  // Add the key parameter
   const CustomersPage({super.key});
 
   @override
-  State<CustomersPage> createState() => _CustomersPageState();
+  // 1. Make the State public so MainScaffold can access it
+  CustomersPageState createState() => CustomersPageState();
 }
 
-class _CustomersPageState extends State<CustomersPage> {
+// 2. Make State class public
+class CustomersPageState extends State<CustomersPage> {
   final ApiService _apiService = ApiService();
   final TextEditingController _searchController = TextEditingController();
 
+  // 3. Use a FutureBuilder pattern, just like AllLoansPage
+  late Future<List<Customer>> _customersFuture;
   List<Customer> _allCustomers = [];
   List<Customer> _filteredCustomers = [];
-  String _statusMessage = 'Loading customers...';
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadCustomers();
+    _customersFuture = _loadCustomers();
     _searchController.addListener(_filterCustomers);
   }
 
-  Future<void> _loadCustomers() async {
-    setState(() { _isLoading = true; });
+  Future<List<Customer>> _loadCustomers() async {
     try {
       final customers = await _apiService.getCustomers();
       setState(() {
         _allCustomers = customers;
         _filteredCustomers = customers;
-        _isLoading = false;
-        _statusMessage = customers.isEmpty ? 'No customers found.' : 'Search for a customer.';
       });
+      return customers;
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _statusMessage = 'Error loading customers: ${e.toString()}';
-      });
+      throw Exception(e.toString());
     }
+  }
+
+  // 4. Create a public refresh method
+  void handleRefresh() {
+    final future = _loadCustomers();
+    setState(() {
+      _customersFuture = future;
+      _searchController.clear();
+    });
   }
 
   void _filterCustomers() {
@@ -85,41 +94,56 @@ class _CustomersPageState extends State<CustomersPage> {
             ),
           ),
           const SizedBox(height: 16),
+          // 5. Use a FutureBuilder for the list
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: _loadCustomers,
-              child: _isLoading
-                  ? Center(child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 10),
-                  Text(_statusMessage),
-                ],
-              ))
-                  : _filteredCustomers.isEmpty
-                  ? Center(child: Text(_searchController.text.isEmpty ? _statusMessage : 'No customers match your search.'))
-                  : ListView.builder(
-                itemCount: _filteredCustomers.length,
-                itemBuilder: (context, index) {
-                  final customer = _filteredCustomers[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4.0),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        child: Text(customer.name[0]),
-                      ),
-                      title: Text(customer.name),
-                      subtitle: Text(customer.phoneNumber),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Tapped on ${customer.name}')),
-                        );
-                      },
+            child: FutureBuilder<List<Customer>>(
+              future: _customersFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Text('Error: ${snapshot.error}', textAlign: TextAlign.center),
                     ),
                   );
-                },
-              ),
+                }
+                if (_allCustomers.isEmpty) {
+                  return const Center(child: Text('No customers found.'));
+                }
+
+                return RefreshIndicator(
+                  onRefresh: () async => handleRefresh(),
+                  child: _filteredCustomers.isEmpty
+                      ? const Center(child: Text('No customers match your search.'))
+                      : ListView.builder(
+                    itemCount: _filteredCustomers.length,
+                    itemBuilder: (context, index) {
+                      final customer = _filteredCustomers[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4.0),
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            child: Text(customer.name[0]),
+                          ),
+                          title: Text(customer.name),
+                          subtitle: Text(customer.phoneNumber),
+                          onTap: () {
+                            // TODO: Navigate to customer detail page
+                            // Navigator.of(context).push(
+                            //   MaterialPageRoute(
+                            //     builder: (context) => CustomerDetailPage(customerId: customer.id),
+                            //   ),
+                            // );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
             ),
           ),
         ],

@@ -6,6 +6,8 @@ import 'package:pledge_loan_mobile/pages/manage_staff_page.dart';
 import 'package:pledge_loan_mobile/pages/customers_page.dart';
 import 'package:pledge_loan_mobile/pages/new_loan_workflow_page.dart';
 import 'package:pledge_loan_mobile/pages/all_loans_page.dart';
+// 1. IMPORT THE NEW PAGE
+import 'package:pledge_loan_mobile/pages/add_customer_page.dart';
 
 class MainScaffold extends StatefulWidget {
   final VoidCallback onLogout;
@@ -20,7 +22,9 @@ class _MainScaffoldState extends State<MainScaffold> {
   String? _userRole;
   bool _isLoading = true;
 
-  // We will now build these lists *after* we know the user's role
+  // 2. CREATE A GLOBAL KEY FOR THE CUSTOMERS PAGE
+  final _customerPageKey = GlobalKey<CustomersPageState>();
+
   List<Widget> _widgetOptions = [];
   List<BottomNavigationBarItem> _navBarItems = [];
 
@@ -32,7 +36,6 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   Future<void> _loadRoleAndBuildUI() async {
     final prefs = await SharedPreferences.getInstance();
-    // Use 'role' to match what we saved in main.dart
     final role = prefs.getString('role');
 
     if (role == null) {
@@ -40,14 +43,12 @@ class _MainScaffoldState extends State<MainScaffold> {
       return;
     }
 
-    // --- THIS IS THE NEW LOGIC ---
     if (role == 'admin') {
-      // ADMIN UI
       setState(() {
         _userRole = 'admin';
         _widgetOptions = [
-          const HomePage(), // Dashboard
-          const CustomersPage(),
+          const HomePage(),
+          CustomersPage(key: _customerPageKey), // 3. ASSIGN THE KEY
           const NewLoanWorkflowPage(),
           const AllLoansPage(),
         ];
@@ -57,26 +58,23 @@ class _MainScaffoldState extends State<MainScaffold> {
           const BottomNavigationBarItem(icon: Icon(Icons.add_circle), label: 'New Loan'),
           const BottomNavigationBarItem(icon: Icon(Icons.list), label: 'All Loans'),
         ];
-        _selectedIndex = 0; // Default to Dashboard
+        _selectedIndex = 0;
         _isLoading = false;
       });
     } else {
-      // STAFF UI
       setState(() {
         _userRole = 'staff';
-        // We *remove* the Dashboard page from the list
         _widgetOptions = [
-          const CustomersPage(),
+          CustomersPage(key: _customerPageKey), // 3. ASSIGN THE KEY
           const NewLoanWorkflowPage(),
           const AllLoansPage(),
         ];
         _navBarItems = [
-          // We *remove* the Dashboard tab
           const BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Customers'),
           const BottomNavigationBarItem(icon: Icon(Icons.add_circle), label: 'New Loan'),
           const BottomNavigationBarItem(icon: Icon(Icons.list), label: 'All Loans'),
         ];
-        _selectedIndex = 0; // Default to Customers page
+        _selectedIndex = 0;
         _isLoading = false;
       });
     }
@@ -100,15 +98,21 @@ class _MainScaffoldState extends State<MainScaffold> {
   }
 
   Widget? _getFloatingActionButton() {
-    // Check role and selected tab
     String currentTabLabel = _navBarItems[_selectedIndex].label!;
 
     if (currentTabLabel == 'Customers') {
       return FloatingActionButton(
+        // 4. UPDATE THE ONPRESSED FUNCTION
         onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('TODO: Add New Customer')),
-          );
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (context) => const AddCustomerPage()),
+          ).then((didAddCustomer) {
+            // This runs when we come back from the AddCustomerPage
+            if (didAddCustomer == true) {
+              // Call the public refresh method on the CustomersPage
+              _customerPageKey.currentState?.handleRefresh();
+            }
+          });
         },
         tooltip: 'Add Customer',
         child: const Icon(Icons.add),
@@ -132,7 +136,6 @@ class _MainScaffoldState extends State<MainScaffold> {
           PopupMenuButton<String>(
             onSelected: _onMenuSelected,
             itemBuilder: (context) => [
-              // Only admin sees Manage Staff
               if (_userRole == 'admin')
                 const PopupMenuItem(
                   value: 'manage_staff',
@@ -151,7 +154,7 @@ class _MainScaffoldState extends State<MainScaffold> {
       ),
       floatingActionButton: _getFloatingActionButton(),
       bottomNavigationBar: BottomNavigationBar(
-        items: _navBarItems, // Use the dynamic list of items
+        items: _navBarItems,
         currentIndex: _selectedIndex,
         selectedItemColor: Colors.blue,
         unselectedItemColor: Colors.grey,

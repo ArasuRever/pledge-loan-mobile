@@ -1,11 +1,14 @@
+// lib/services/api_service.dart
 import 'package:flutter/material.dart'; // For debugPrint
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert'; // For jsonDecode
+
+// Import all of your models
 import 'package:pledge_loan_mobile/models/customer_model.dart';
 import 'package:pledge_loan_mobile/models/loan_model.dart';
-import 'package:pledge_loan_mobile/models/transaction_model.dart';
 import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
+import 'package:pledge_loan_mobile/models/transaction_model.dart';
 
 class ApiService {
   final String _baseUrl = 'https://pledge-loan-api-as.onrender.com/api';
@@ -37,6 +40,7 @@ class ApiService {
     await prefs.remove('role');
   }
 
+  // --- Dashboard ---
   Future<Map<String, dynamic>> getDashboardStats() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -50,6 +54,7 @@ class ApiService {
     }
   }
 
+  // --- Customers ---
   Future<List<Customer>> getCustomers() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -66,32 +71,50 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> createLoan(Map<String, String> loanData) async {
+  Future<Map<String, dynamic>> addCustomer({
+    required String name,
+    required String phoneNumber,
+    required String address,
+  }) async {
     final token = await _getToken();
     if (token == null) {
       throw Exception('Not authenticated');
     }
+
+    // Must use MultipartRequest because the backend uses multer
     var request = http.MultipartRequest(
       'POST',
-      Uri.parse('$_baseUrl/loans'),
+      Uri.parse('$_baseUrl/customers'), // Calls POST /api/customers
     );
+
     request.headers['Authorization'] = 'Bearer $token';
-    request.fields.addAll(loanData);
+
+    // Add text fields
+    request.fields['name'] = name;
+    request.fields['phone_number'] = phoneNumber;
+    request.fields['address'] = address;
+    // We are not sending a 'photo' file, which is fine
+
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
+
     if (response.statusCode == 201) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Failed to create loan: ${response.body}');
+      debugPrint('Failed to add customer. Status: ${response.statusCode}');
+      debugPrint('Response body: ${response.body}');
+      throw Exception('Failed to add customer: ${response.body}');
     }
   }
 
+  // --- Loans ---
   Future<List<Loan>> getLoans() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
-      Uri.parse('$_baseUrl/loans'),
+      Uri.parse('$_baseUrl/loans'), // Fetches from /api/loans
       headers: headers,
     );
+
     if (response.statusCode == 200) {
       List<dynamic> body = jsonDecode(response.body);
       List<Loan> loans =
@@ -112,7 +135,6 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      // The LoanDetail model is designed to parse the entire response
       return LoanDetail.fromJson(jsonDecode(response.body));
     } else {
       debugPrint('Failed to load loan details. Status: ${response.statusCode}');
@@ -121,7 +143,69 @@ class ApiService {
     }
   }
 
-  Future<void> addPayment({
+  Future<Map<String, dynamic>> createLoan(
+      Map<String, String> loanData) async {
+    final token = await _getToken();
+    if (token == null) {
+      throw Exception('Not authenticated');
+    }
+
+    var request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$_baseUrl/loans'), // /api/loans
+    );
+
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields.addAll(loanData);
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 201) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to create loan: ${response.body}');
+    }
+  }
+
+  Future<Map<String, dynamic>> updateLoan({
+    required int loanId,
+    required Map<String, String> loanData,
+  }) async {
+    final token = await _getToken();
+    if (token == null) {
+      throw Exception('Not authenticated');
+    }
+
+    var request = http.MultipartRequest(
+      'PUT',
+      Uri.parse('$_baseUrl/loans/$loanId'), // Calls PUT /api/loans/:id
+    );
+
+    request.headers['Authorization'] = 'Bearer $token';
+    request.fields.addAll(loanData);
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      debugPrint('Failed to update loan. Status: ${response.statusCode}');
+      debugPrint('Response body: ${response.body}');
+      String errorMessage = 'Failed to update loan.';
+      try {
+        final errorBody = jsonDecode(response.body);
+        if (errorBody['error'] != null) {
+          errorMessage = errorBody['error'];
+        }
+      } catch (_) {}
+      throw Exception(errorMessage);
+    }
+  }
+
+  // --- Transactions / Actions ---
+  Future<List<dynamic>> addPayment({ // Updated to return a List
     required int loanId,
     required String amount,
     required String paymentType,
@@ -129,7 +213,6 @@ class ApiService {
   }) async {
     final headers = await _getAuthHeaders();
 
-    // Calls /api/transactions
     final response = await http.post(
       Uri.parse('$_baseUrl/transactions'),
       headers: headers,
@@ -137,12 +220,12 @@ class ApiService {
         'loan_id': loanId,
         'amount_paid': amount,
         'payment_type': paymentType,
-        'details': details ?? '$paymentType payment'
+        // 'details' column does not exist in your new backend
       }),
     );
 
     if (response.statusCode == 201) {
-      return;
+      return jsonDecode(response.body); // Backend returns an array
     } else {
       debugPrint('Failed to add payment. Status: ${response.statusCode}');
       debugPrint('Response body: ${response.body}');
@@ -156,7 +239,6 @@ class ApiService {
   }) async {
     final headers = await _getAuthHeaders();
 
-    // Calls /api/loans/:id/settle
     final response = await http.post(
       Uri.parse('$_baseUrl/loans/$loanId/settle'),
       headers: headers,
@@ -166,12 +248,10 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      // Successful settlement returns 200 OK
       return jsonDecode(response.body);
     } else {
       debugPrint('Failed to settle loan. Status: ${response.statusCode}');
       debugPrint('Response body: ${response.body}');
-      // Try to parse the error message from the backend
       String errorMessage = 'Failed to settle loan.';
       try {
         final errorBody = jsonDecode(response.body);
@@ -189,7 +269,6 @@ class ApiService {
   }) async {
     final headers = await _getAuthHeaders();
 
-    // Calls /api/loans/:id/add-principal
     final response = await http.post(
       Uri.parse('$_baseUrl/loans/$loanId/add-principal'),
       headers: headers,
@@ -199,51 +278,11 @@ class ApiService {
     );
 
     if (response.statusCode == 200) {
-      // Successful add principal returns 200 OK
       return jsonDecode(response.body);
     } else {
       debugPrint('Failed to add principal. Status: ${response.statusCode}');
       debugPrint('Response body: ${response.body}');
       String errorMessage = 'Failed to add principal.';
-      try {
-        final errorBody = jsonDecode(response.body);
-        if (errorBody['error'] != null) {
-          errorMessage = errorBody['error'];
-        }
-      } catch (_) {}
-      throw Exception(errorMessage);
-    }
-  }
-
-  Future<Map<String, dynamic>> updateLoan({
-    required int loanId,
-    required Map<String, String> loanData,
-  }) async {
-    final token = await _getToken();
-    if (token == null) {
-      throw Exception('Not authenticated');
-    }
-
-    // Your backend uses multer for this route
-    // so we must use a Multipart request.
-    var request = http.MultipartRequest(
-      'PUT',
-      Uri.parse('$_baseUrl/loans/$loanId'), // Calls PUT /api/loans/:id
-    );
-
-    request.headers['Authorization'] = 'Bearer $token';
-    request.fields.addAll(loanData);
-    // We are not sending a photo, your backend will handle this
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode == 200) {
-      return jsonDecode(response.body);
-    } else {
-      debugPrint('Failed to update loan. Status: ${response.statusCode}');
-      debugPrint('Response body: ${response.body}');
-      String errorMessage = 'Failed to update loan.';
       try {
         final errorBody = jsonDecode(response.body);
         if (errorBody['error'] != null) {
