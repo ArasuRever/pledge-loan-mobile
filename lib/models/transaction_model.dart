@@ -7,6 +7,7 @@ class Transaction {
   final String paymentType;
   final String paymentDate;
   final String? details;
+  final String? changedByUsername; // <-- 1. NEW FIELD
 
   Transaction({
     required this.id,
@@ -14,6 +15,7 @@ class Transaction {
     required this.paymentType,
     required this.paymentDate,
     this.details,
+    this.changedByUsername, // <-- 2. ADD TO CONSTRUCTOR
   });
 
   factory Transaction.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class Transaction {
       paymentType: json['payment_type'],
       paymentDate: json['payment_date'],
       details: json['details'],
+      changedByUsername: json['changed_by_username'], // <-- 3. PARSE FROM JSON
     );
   }
 

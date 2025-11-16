@@ -9,7 +9,6 @@ import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
-// --- 1. NEW: Import the history page ---
 import 'package:pledge_loan_mobile/pages/loan_history_page.dart';
 
 class LoanDetailPage extends StatefulWidget {
@@ -49,16 +48,11 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
 
   Color _getStatusColor(String status) {
     switch (status) {
-      case 'overdue':
-        return Colors.red;
-      case 'active':
-        return Colors.green;
-      case 'paid':
-        return Colors.blueGrey;
-      case 'forfeited':
-        return Colors.black54;
-      default:
-        return Colors.black;
+      case 'overdue': return Colors.red;
+      case 'active': return Colors.green;
+      case 'paid': return Colors.blueGrey;
+      case 'forfeited': return Colors.black54;
+      default: return Colors.black;
     }
   }
 
@@ -122,7 +116,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- 2. NEW: Function to navigate to history page ---
   void _navigateToHistory() {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -222,7 +215,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
 
                 return Row(
                   children: [
-                    // --- 3. NEW: View History Button ---
                     IconButton(
                       icon: const Icon(Icons.history),
                       tooltip: 'View History',
@@ -439,6 +431,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
+  // --- ⭐ THIS IS THE MODIFIED WIDGET ---
   Widget _buildTransactionsList(List<Transaction> transactions) {
     if (transactions.isEmpty) {
       return const Center(
@@ -465,6 +458,13 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
               itemCount: transactions.length,
               itemBuilder: (context, index) {
                 final tx = transactions[index];
+
+                // --- Build the subtitle with username ---
+                String subtitle = tx.formattedDate;
+                if (tx.changedByUsername != null) {
+                  subtitle += ' (by ${tx.changedByUsername})'; // Add username
+                }
+
                 return ListTile(
                   leading: CircleAvatar(
                     backgroundColor: tx.color.withAlpha(50),
@@ -474,7 +474,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                     '${tx.paymentType[0].toUpperCase()}${tx.paymentType.substring(1)}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: Text(tx.formattedDate),
+                  subtitle: Text(subtitle), // --- Use the new subtitle ---
                   trailing: Text(
                     '${tx.paymentType == 'disbursement' ? '+' : '-'}${tx.formattedAmount}',
                     style: TextStyle(
@@ -491,6 +491,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
       ),
     );
   }
+  // --- END OF MODIFIED WIDGET ---
 
   Widget _buildDetailRow(String label, String value,
       {Color? valueColor, bool isTotal = false}) {
