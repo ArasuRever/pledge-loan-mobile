@@ -8,6 +8,7 @@ import 'package:pledge_loan_mobile/widgets/settle_loan_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
 // --- 1. IMPORT THE NEW EDIT PAGE ---
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
+import 'dart:convert';
 
 class LoanDetailPage extends StatefulWidget {
   final int loanId;
@@ -271,8 +272,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
   }
 
   // ... (unchanged)
+  // --- REPLACE this function in lib/pages/loan_detail_page.dart ---
   Widget _buildItemDetailsCard(LoanDetail loan) {
-    // ... (unchanged)
     return Card(
       elevation: 2,
       child: Padding(
@@ -282,6 +283,23 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
           children: [
             Text('Pledged Item', style: Theme.of(context).textTheme.titleLarge),
             const Divider(height: 24),
+
+            // --- 1. NEW IMAGE WIDGET ---
+            if (loan.itemImageDataUrl != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: Center(
+                  child: Image.memory(
+                    // Decode the Base64 string from the data URL
+                    base64Decode(loan.itemImageDataUrl!.split(',')[1]),
+                    height: 150,
+                    width: 150,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              ),
+            // --- END NEW IMAGE WIDGET ---
+
             _buildDetailRow('Type', loan.itemType ?? 'N/A'),
             _buildDetailRow('Description', loan.description ?? 'N/A'),
             _buildDetailRow('Weight', '${loan.weight ?? '0'} g'),

@@ -3,13 +3,14 @@ import 'package:flutter/material.dart'; // For debugPrint
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert'; // For jsonDecode
-
+import 'dart:io'; // For File
+import 'package:http_parser/http_parser.dart'; // For MediaType
 // Import all of your models
 import 'package:pledge_loan_mobile/models/customer_model.dart';
 import 'package:pledge_loan_mobile/models/loan_model.dart';
 import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
 import 'package:pledge_loan_mobile/models/transaction_model.dart';
-import 'package:pledge_loan_mobile/models/customer_loan_model.dart'; // <-- 1. ADD THIS IMPORT
+import 'package:pledge_loan_mobile/models/customer_loan_model.dart';
 
 class ApiService {
   final String _baseUrl = 'https://pledge-loan-api-as.onrender.com/api';
@@ -174,20 +175,40 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> createLoan(
-      Map<String, String> loanData) async {
+  Future<Map<String, dynamic>> createLoan({
+    required Map<String, String> loanData,
+    File? imageFile, // Add imageFile parameter
+  }) async {
     final token = await _getToken();
     if (token == null) {
       throw Exception('Not authenticated');
     }
+
+    // Must use MultipartRequest because the backend uses multer
     var request = http.MultipartRequest(
       'POST',
-      Uri.parse('$_baseUrl/loans'),
+      Uri.parse('$_baseUrl/loans'), // /api/loans
     );
+
     request.headers['Authorization'] = 'Bearer $token';
+
+    // Add all the text fields
     request.fields.addAll(loanData);
+
+    // --- ADD THE IMAGE FILE (if it exists) ---
+    if (imageFile != null) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'itemPhoto', // This MUST match your backend's upload.single('itemPhoto')
+          imageFile.path,
+          contentType: MediaType('image', 'jpeg'), // Or 'png'
+        ),
+      );
+    }
+
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
+
     if (response.statusCode == 201) {
       return jsonDecode(response.body);
     } else {

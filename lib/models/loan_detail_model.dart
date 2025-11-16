@@ -49,6 +49,7 @@ class LoanDetail {
   final String? description;
   final String? quality;
   final String? weight;
+  final String? itemImageDataUrl;
 
   // From 'transactions' array
   final List<Transaction> transactions;
@@ -70,6 +71,7 @@ class LoanDetail {
     this.description,
     this.quality,
     this.weight,
+    this.itemImageDataUrl,
     required this.transactions,
     required this.calculated, // <-- Add to constructor
   });
@@ -102,6 +104,7 @@ class LoanDetail {
       description: details['description'],
       quality: details['quality'],
       weight: details['weight']?.toString(),
+      itemImageDataUrl: details['item_image_data_url'],
       transactions: parsedTransactions,
       // --- 4. PASS THE PARSED OBJECT ---
       calculated: CalculatedStats.fromJson(calculatedData),
