@@ -3,8 +3,8 @@ import 'package:flutter/material.dart'; // For debugPrint
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert'; // For jsonDecode
-import 'dart:io'; // <-- 1. FIX: ADDED THIS IMPORT FOR 'File'
-import 'package:http_parser/http_parser.dart'; // <-- 2. FIX: ADDED THIS IMPORT FOR 'MediaType'
+import 'dart:io';
+import 'package:http_parser/http_parser.dart';
 
 // Import all of your models
 import 'package:pledge_loan_mobile/models/customer_model.dart';
@@ -13,6 +13,10 @@ import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
 import 'package:pledge_loan_mobile/models/transaction_model.dart';
 import 'package:pledge_loan_mobile/models/customer_loan_model.dart';
 import 'package:pledge_loan_mobile/models/user_model.dart';
+import 'package:pledge_loan_mobile/models/recycle_bin_model.dart';
+// --- NEW: Import History Model ---
+import 'package:pledge_loan_mobile/models/loan_history_model.dart';
+
 
 class ApiService {
   final String _baseUrl = 'https://pledge-loan-api-as.onrender.com/api';
@@ -135,7 +139,8 @@ class ApiService {
       body.map((dynamic item) => Loan.fromJson(item)).toList();
       return loans;
     } else {
-      throw Exception('Failed to load loans. Status code: ${response.statusCode}');
+      throw Exception(
+          'Failed to load loans. Status code: ${response.statusCode}');
     }
   }
 
@@ -148,9 +153,28 @@ class ApiService {
     if (response.statusCode == 200) {
       return LoanDetail.fromJson(jsonDecode(response.body));
     } else {
-      throw Exception('Failed to load loan details. Status code: ${response.statusCode}');
+      throw Exception(
+          'Failed to load loan details. Status code: ${response.statusCode}');
     }
   }
+
+  // --- NEW: Get Loan History ---
+  Future<List<LoanHistoryItem>> getLoanHistory(int loanId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.get(
+      Uri.parse('$_baseUrl/loans/$loanId/history'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      List<dynamic> body = jsonDecode(response.body);
+      List<LoanHistoryItem> history =
+      body.map((dynamic item) => LoanHistoryItem.fromJson(item)).toList();
+      return history;
+    } else {
+      throw Exception('Failed to load loan history: ${response.body}');
+    }
+  }
+  // --- END NEW ---
 
   Future<Map<String, dynamic>> createLoan(
       {required Map<String, String> loanData, File? imageFile}) async {
@@ -164,7 +188,7 @@ class ApiService {
         await http.MultipartFile.fromPath(
           'itemPhoto',
           imageFile.path,
-          contentType: MediaType('image', 'jpeg'), // <-- 'MediaType' is now found
+          contentType: MediaType('image', 'jpeg'),
         ),
       );
     }
@@ -183,7 +207,8 @@ class ApiService {
   }) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
-    var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/loans/$loanId'));
+    var request =
+    http.MultipartRequest('PUT', Uri.parse('$_baseUrl/loans/$loanId'));
     request.headers['Authorization'] = 'Bearer $token';
     request.fields.addAll(loanData);
     final streamedResponse = await request.send();
@@ -333,6 +358,77 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to delete staff: ${response.body}');
+    }
+  }
+
+  // --- RECYCLE BIN FUNCTIONS ---
+
+  Future<RecycleBinData> getRecycleBinData() async {
+    final headers = await _getAuthHeaders();
+    final response = await http.get(
+      Uri.parse('$_baseUrl/recycle-bin/deleted'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return RecycleBinData.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Failed to load recycle bin data: ${response.body}');
+    }
+  }
+
+  Future<Map<String, dynamic>> softDeleteCustomer(int customerId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/customers/$customerId'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['error'] ?? 'Failed to delete customer');
+    }
+  }
+
+  Future<Map<String, dynamic>> softDeleteLoan(int loanId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/loans/$loanId'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['error'] ?? 'Failed to delete loan');
+    }
+  }
+
+  Future<Map<String, dynamic>> restoreCustomer(int customerId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/customers/$customerId/restore'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['error'] ?? 'Failed to restore customer');
+    }
+  }
+
+  Future<Map<String, dynamic>> restoreLoan(int loanId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/loans/$loanId/restore'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['error'] ?? 'Failed to restore loan');
     }
   }
 }

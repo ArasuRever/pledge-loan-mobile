@@ -6,9 +6,11 @@ import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/widgets/add_payment_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/settle_loan_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
-// --- 1. IMPORT THE NEW EDIT PAGE ---
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
 import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
+// --- 1. NEW: Import the history page ---
+import 'package:pledge_loan_mobile/pages/loan_history_page.dart';
 
 class LoanDetailPage extends StatefulWidget {
   final int loanId;
@@ -20,32 +22,47 @@ class LoanDetailPage extends StatefulWidget {
 
 class _LoanDetailPageState extends State<LoanDetailPage> {
   late Future<LoanDetail> _loanDetailFuture;
+  String? _userRole;
+  final ApiService _apiService = ApiService();
 
   @override
   void initState() {
     super.initState();
+    _loadUserRole();
     _loadLoanDetails();
+  }
+
+  Future<void> _loadUserRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userRole = prefs.getString('role');
+      });
+    }
   }
 
   void _loadLoanDetails() {
     setState(() {
-      _loanDetailFuture = ApiService().getLoanDetails(widget.loanId);
+      _loanDetailFuture = _apiService.getLoanDetails(widget.loanId);
     });
   }
 
   Color _getStatusColor(String status) {
-    // ... (unchanged)
     switch (status) {
-      case 'overdue': return Colors.red;
-      case 'active': return Colors.green;
-      case 'paid': return Colors.blueGrey;
-      case 'forfeited': return Colors.black54;
-      default: return Colors.black;
+      case 'overdue':
+        return Colors.red;
+      case 'active':
+        return Colors.green;
+      case 'paid':
+        return Colors.blueGrey;
+      case 'forfeited':
+        return Colors.black54;
+      default:
+        return Colors.black;
     }
   }
 
   void _showAddPaymentDialog() {
-    // ... (unchanged)
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -66,7 +83,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
   }
 
   void _showSettleLoanDialog() {
-    // ... (unchanged)
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -87,7 +103,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
   }
 
   void _showAddPrincipalDialog() {
-    // ... (unchanged)
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -107,16 +122,22 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- CHANGED (1/3): Removed 'add_principal' logic from this menu handler ---
+  // --- 2. NEW: Function to navigate to history page ---
+  void _navigateToHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => LoanHistoryPage(loanId: widget.loanId),
+      ),
+    );
+  }
+
   void _onMenuSelected(String value, LoanDetail loan) {
     if (value == 'edit_loan') {
-      // Navigate to the new page and wait for a result
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => EditLoanPage(loanDetail: loan),
         ),
       ).then((wasUpdated) {
-        // If the edit page pops 'true', refresh the details
         if (wasUpdated == true) {
           _loadLoanDetails();
           ScaffoldMessenger.of(context).showSnackBar(
@@ -130,6 +151,53 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     }
   }
 
+  Future<void> _handleDeleteLoan() async {
+    final confirmed = await _showConfirmationDialog(
+        context,
+        'Delete Loan?',
+        'Are you sure you want to move this loan to the recycle bin?');
+    if (confirmed) {
+      try {
+        final result = await _apiService.softDeleteLoan(widget.loanId);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result['message'] ?? 'Loan moved to recycle bin.'),
+          backgroundColor: Colors.green,
+        ));
+        Navigator.of(context).pop(true);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    }
+  }
+
+  Future<bool> _showConfirmationDialog(
+      BuildContext context, String title, String content) async {
+    return (await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('DELETE'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    )) ??
+        false;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -140,7 +208,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
             icon: const Icon(Icons.refresh),
             onPressed: _loadLoanDetails,
           ),
-          // --- CHANGED (2/3): Replaced PopupMenu with a simple Edit IconButton ---
           FutureBuilder<LoanDetail>(
               future: _loanDetailFuture,
               builder: (context, snapshot) {
@@ -148,23 +215,40 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                   return const SizedBox.shrink();
                 }
                 final loan = snapshot.data!;
-                // Only show edit button if loan is not closed
-                if (loan.status == 'active' || loan.status == 'overdue') {
-                  return IconButton(
-                    icon: const Icon(Icons.edit),
-                    tooltip: 'Edit Loan Details',
-                    onPressed: () => _onMenuSelected('edit_loan', loan),
-                  );
-                }
-                return const SizedBox.shrink(); // No edit button if paid/forfeited
-              }
-          ),
+                final isActive =
+                    loan.status == 'active' || loan.status == 'overdue';
+                final isClosed =
+                    loan.status == 'paid' || loan.status == 'forfeited';
+
+                return Row(
+                  children: [
+                    // --- 3. NEW: View History Button ---
+                    IconButton(
+                      icon: const Icon(Icons.history),
+                      tooltip: 'View History',
+                      onPressed: _navigateToHistory,
+                    ),
+                    if (isActive)
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        tooltip: 'Edit Loan Details',
+                        onPressed: () => _onMenuSelected('edit_loan', loan),
+                      ),
+                    if (_userRole == 'admin' && isClosed)
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline),
+                        tooltip: 'Delete Loan',
+                        color: Colors.red,
+                        onPressed: _handleDeleteLoan,
+                      ),
+                  ],
+                );
+              }),
         ],
       ),
       body: FutureBuilder<LoanDetail>(
         future: _loanDetailFuture,
         builder: (context, snapshot) {
-          // ... (rest of build method is unchanged)
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -172,7 +256,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: Text('Error: ${snapshot.error}', textAlign: TextAlign.center),
+                child: Text('Error: ${snapshot.error}',
+                    textAlign: TextAlign.center),
               ),
             );
           }
@@ -193,7 +278,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                     _buildItemDetailsCard(loan),
                     const SizedBox(height: 20),
                     _buildTransactionsList(loan.transactions),
-                    // Add some space at the bottom so the buttons don't hide content
                     const SizedBox(height: 80),
                   ],
                 ),
@@ -206,12 +290,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // ... (unchanged)
   Widget _buildLoanSummaryCard(LoanDetail loan) {
-    // Get the calculated stats
     final stats = loan.calculated;
-
-    // Helper to format the stats
     String formatStat(String value) {
       try {
         return '₹${double.parse(value).toStringAsFixed(0)}';
@@ -227,43 +307,41 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- Customer Info ---
             Text(
               loan.customerName,
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            Text(loan.phoneNumber ?? 'No phone', style: Theme.of(context).textTheme.titleMedium),
+            Text(loan.phoneNumber ?? 'No phone',
+                style: Theme.of(context).textTheme.titleMedium),
             const Divider(height: 24),
-
-            // --- Loan Info ---
             _buildDetailRow('Status', loan.status.toUpperCase(),
-                valueColor: _getStatusColor(loan.status)
-            ),
+                valueColor: _getStatusColor(loan.status)),
             _buildDetailRow('Book #', loan.bookLoanNumber ?? 'N/A'),
             _buildDetailRow('Pledge Date', loan.pledgeDate.split('T')[0]),
             _buildDetailRow('Due Date', loan.dueDate.split('T')[0]),
-
             const Divider(height: 24),
-
-            // --- 1. DETAILED BREAKDOWN ---
-            // This now uses the calculated outstanding principal
-            _buildDetailRow('Total Principal', formatStat(stats.outstandingPrincipal)),
+            _buildDetailRow(
+                'Total Principal', formatStat(stats.outstandingPrincipal)),
             _buildDetailRow('Interest Rate', '${loan.interestRate}% / month'),
-            _buildDetailRow('Principal Paid', formatStat(stats.principalPaid), valueColor: Colors.green),
-            _buildDetailRow('Interest Paid', formatStat(stats.interestPaid), valueColor: Colors.green),
-            _buildDetailRow('Total Paid', formatStat(stats.totalPaid), valueColor: Colors.green),
-
+            _buildDetailRow('Principal Paid', formatStat(stats.principalPaid),
+                valueColor: Colors.green),
+            _buildDetailRow('Interest Paid', formatStat(stats.interestPaid),
+                valueColor: Colors.green),
+            _buildDetailRow('Total Paid', formatStat(stats.totalPaid),
+                valueColor: Colors.green),
             const Divider(height: 24),
-
-            // --- 2. AMOUNT DUE CALCULATION ---
-            _buildDetailRow('Outstanding Principal', formatStat(stats.outstandingPrincipal), valueColor: Colors.red),
-            _buildDetailRow('Outstanding Interest', formatStat(stats.outstandingInterest), valueColor: Colors.red),
+            _buildDetailRow(
+                'Outstanding Principal', formatStat(stats.outstandingPrincipal),
+                valueColor: Colors.red),
+            _buildDetailRow(
+                'Outstanding Interest', formatStat(stats.outstandingInterest),
+                valueColor: Colors.red),
             const SizedBox(height: 8),
             _buildDetailRow(
               'TOTAL AMOUNT DUE (as of today)',
               formatStat(stats.amountDue),
               valueColor: Colors.red,
-              isTotal: true, // Make it bigger
+              isTotal: true,
             ),
           ],
         ),
@@ -271,8 +349,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // ... (unchanged)
-  // --- REPLACE this function in lib/pages/loan_detail_page.dart ---
   Widget _buildItemDetailsCard(LoanDetail loan) {
     return Card(
       elevation: 2,
@@ -283,14 +359,11 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
           children: [
             Text('Pledged Item', style: Theme.of(context).textTheme.titleLarge),
             const Divider(height: 24),
-
-            // --- 1. NEW IMAGE WIDGET ---
             if (loan.itemImageDataUrl != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 16.0),
                 child: Center(
                   child: Image.memory(
-                    // Decode the Base64 string from the data URL
                     base64Decode(loan.itemImageDataUrl!.split(',')[1]),
                     height: 150,
                     width: 150,
@@ -298,8 +371,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                   ),
                 ),
               ),
-            // --- END NEW IMAGE WIDGET ---
-
             _buildDetailRow('Type', loan.itemType ?? 'N/A'),
             _buildDetailRow('Description', loan.description ?? 'N/A'),
             _buildDetailRow('Weight', '${loan.weight ?? '0'} g'),
@@ -310,9 +381,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- CHANGED (3/3): Added 'Add Principal' button to the bottom bar ---
   Widget _buildActionButtons(LoanDetail loan) {
-    // This check is still valid: only show buttons for active/overdue loans
     if (loan.status != 'active' && loan.status != 'overdue') {
       return const SizedBox.shrink();
     }
@@ -331,18 +400,18 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
       ),
       child: Row(
         children: [
-          // THE NEWLY ADDED BUTTON
           Expanded(
             child: ElevatedButton(
               onPressed: _showAddPrincipalDialog,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange, // A distinct color
+                backgroundColor: Colors.orange,
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
-              child: const Text('Add Principal', style: TextStyle(color: Colors.white)),
+              child:
+              const Text('Add Principal', style: TextStyle(color: Colors.white)),
             ),
           ),
-          const SizedBox(width: 12), // Spacing
+          const SizedBox(width: 12),
           Expanded(
             child: ElevatedButton(
               onPressed: _showAddPaymentDialog,
@@ -350,10 +419,11 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                 backgroundColor: Colors.blue,
                 padding: const EdgeInsets.symmetric(vertical: 16),
               ),
-              child: const Text('Add Payment', style: TextStyle(color: Colors.white)),
+              child:
+              const Text('Add Payment', style: TextStyle(color: Colors.white)),
             ),
           ),
-          const SizedBox(width: 12), // Spacing
+          const SizedBox(width: 12),
           Expanded(
             child: ElevatedButton(
               onPressed: _showSettleLoanDialog,
@@ -369,9 +439,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // ... (unchanged)
   Widget _buildTransactionsList(List<Transaction> transactions) {
-    // ... (unchanged)
     if (transactions.isEmpty) {
       return const Center(
         child: Padding(
@@ -388,7 +456,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Payment History', style: Theme.of(context).textTheme.titleLarge),
+            Text('Payment History',
+                style: Theme.of(context).textTheme.titleLarge),
             const Divider(height: 24),
             ListView.builder(
               shrinkWrap: true,
@@ -423,16 +492,16 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // ... (unchanged)
-  Widget _buildDetailRow(String label, String value, {Color? valueColor, bool isTotal = false}) {
+  Widget _buildDetailRow(String label, String value,
+      {Color? valueColor, bool isTotal = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        crossAxisAlignment: CrossAxisAlignment.start, // Align to top
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded( // Wrap label in Expanded
-            flex: 2, // Give label 2/3 of the space
+          Expanded(
+            flex: 2,
             child: Text(
               label,
               style: TextStyle(
@@ -443,11 +512,11 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
             ),
           ),
           const SizedBox(width: 16),
-          Expanded( // Wrap value in Expanded
-            flex: 1, // Give value 1/3 of the space
+          Expanded(
+            flex: 1,
             child: Text(
               value,
-              textAlign: TextAlign.right, // Align value to the right
+              textAlign: TextAlign.right,
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: isTotal ? 18 : 15,

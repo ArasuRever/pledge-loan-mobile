@@ -5,6 +5,7 @@ import 'package:pledge_loan_mobile/models/customer_model.dart';
 import 'package:pledge_loan_mobile/models/customer_page_data.dart'; // Import new holder
 import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/pages/loan_detail_page.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // --- NEW IMPORT ---
 
 class CustomerDetailPage extends StatefulWidget {
   final int customerId;
@@ -23,40 +24,99 @@ class CustomerDetailPage extends StatefulWidget {
 class _CustomerDetailPageState extends State<CustomerDetailPage> {
   late Future<CustomerPageData> _pageDataFuture;
   final ApiService _apiService = ApiService();
+  String? _userRole; // --- NEW STATE FOR ROLE ---
 
   @override
   void initState() {
     super.initState();
+    _loadUserRole(); // --- NEW: Load role ---
     _pageDataFuture = _loadPageData();
   }
 
-  // --- THIS FUNCTION IS NOW CORRECT ---
+  // --- NEW: Function to load user role ---
+  Future<void> _loadUserRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userRole = prefs.getString('role');
+      });
+    }
+  }
+
   Future<CustomerPageData> _loadPageData() async {
     try {
-      // Run both API calls at the same time
-      // This 'Future.wait<dynamic>' is the fix for the build error
       final results = await Future.wait<dynamic>([
-        _apiService.getCustomerDetails(widget.customerId), // This is a Future
-        _apiService.getCustomerLoans(widget.customerId),  // This is a Future
+        _apiService.getCustomerDetails(widget.customerId),
+        _apiService.getCustomerLoans(widget.customerId),
       ]);
 
-      // Combine results into our holder model
       final customer = results[0] as Customer;
       final loans = results[1] as List<CustomerLoan>;
 
       return CustomerPageData(customer: customer, loans: loans);
     } catch (e) {
-      // If either call fails, throw an error
       throw Exception('Failed to load customer data: ${e.toString()}');
     }
   }
 
+  // --- NEW: Handle Delete Customer ---
+  Future<void> _handleDeleteCustomer() async {
+    final confirmed = await _showConfirmationDialog(
+        context,
+        'Delete Customer?',
+        'Are you sure you want to move this customer to the recycle bin?');
+    if (confirmed) {
+      try {
+        final result = await _apiService.softDeleteCustomer(widget.customerId);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(result['message'] ?? 'Customer moved to recycle bin.'),
+          backgroundColor: Colors.green,
+        ));
+        // Pop back to customer list, returning 'true' to signal a refresh
+        Navigator.of(context).pop(true);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ));
+      }
+    }
+  }
+
+  // --- NEW: Confirmation Dialog Helper ---
+  Future<bool> _showConfirmationDialog(
+      BuildContext context, String title, String content) async {
+    return (await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('DELETE'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          ),
+        ],
+      ),
+    )) ??
+        false;
+  }
+
   void _navigateToLoanDetail(int loanId) {
-    Navigator.of(context).push(
+    Navigator.of(context)
+        .push(
       MaterialPageRoute(
         builder: (context) => LoanDetailPage(loanId: loanId),
       ),
-    ).then((_) {
+    )
+        .then((_) {
       // Refresh when coming back from the loan detail page
       setState(() {
         _pageDataFuture = _loadPageData();
@@ -69,6 +129,16 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.customerName),
+        // --- NEW: Add Delete Button for Admin ---
+        actions: [
+          if (_userRole == 'admin')
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: 'Delete Customer',
+              color: Colors.red,
+              onPressed: _handleDeleteCustomer,
+            ),
+        ],
       ),
       body: FutureBuilder<CustomerPageData>(
         future: _pageDataFuture,
@@ -87,10 +157,12 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
           final allLoans = snapshot.data!.loans;
 
           final activeLoans = allLoans
-              .where((loan) => loan.status == 'active' || loan.status == 'overdue')
+              .where(
+                  (loan) => loan.status == 'active' || loan.status == 'overdue')
               .toList();
           final closedLoans = allLoans
-              .where((loan) => loan.status == 'paid' || loan.status == 'forfeited')
+              .where(
+                  (loan) => loan.status == 'paid' || loan.status == 'forfeited')
               .toList();
 
           return ListView(
@@ -125,7 +197,8 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
               children: [
                 const Icon(Icons.phone, size: 16, color: Colors.grey),
                 const SizedBox(width: 8),
-                Text(customer.phoneNumber, style: Theme.of(context).textTheme.titleMedium),
+                Text(customer.phoneNumber,
+                    style: Theme.of(context).textTheme.titleMedium),
               ],
             ),
             const SizedBox(height: 8),
@@ -138,8 +211,9 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
                   child: Text(
                     customer.address ?? 'No address provided',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontStyle: customer.address == null ? FontStyle.italic : FontStyle.normal
-                    ),
+                        fontStyle: customer.address == null
+                            ? FontStyle.italic
+                            : FontStyle.normal),
                   ),
                 ),
               ],
@@ -150,7 +224,8 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     );
   }
 
-  Widget _buildLoanSection(BuildContext context, String title, List<CustomerLoan> loans) {
+  Widget _buildLoanSection(
+      BuildContext context, String title, List<CustomerLoan> loans) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -173,7 +248,8 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
             return Card(
               child: ListTile(
                 title: Text(loan.description ?? 'Loan #${loan.loanId}'),
-                subtitle: Text('Book #: ${loan.bookLoanNumber ?? 'N/A'} - ${loan.formattedPrincipal}'),
+                subtitle: Text(
+                    'Book #: ${loan.bookLoanNumber ?? 'N/A'} - ${loan.formattedPrincipal}'),
                 trailing: Text(
                   loan.status.toUpperCase(),
                   style: TextStyle(

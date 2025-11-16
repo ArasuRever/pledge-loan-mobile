@@ -6,8 +6,9 @@ import 'package:pledge_loan_mobile/pages/manage_staff_page.dart';
 import 'package:pledge_loan_mobile/pages/customers_page.dart';
 import 'package:pledge_loan_mobile/pages/new_loan_workflow_page.dart';
 import 'package:pledge_loan_mobile/pages/all_loans_page.dart';
-// 1. IMPORT THE NEW PAGE
 import 'package:pledge_loan_mobile/pages/add_customer_page.dart';
+// --- NEW: Import Recycle Bin Page ---
+import 'package:pledge_loan_mobile/pages/recycle_bin_page.dart';
 
 class MainScaffold extends StatefulWidget {
   final VoidCallback onLogout;
@@ -22,7 +23,6 @@ class _MainScaffoldState extends State<MainScaffold> {
   String? _userRole;
   bool _isLoading = true;
 
-  // 2. CREATE A GLOBAL KEY FOR THE CUSTOMERS PAGE
   final _customerPageKey = GlobalKey<CustomersPageState>();
 
   List<Widget> _widgetOptions = [];
@@ -48,14 +48,17 @@ class _MainScaffoldState extends State<MainScaffold> {
         _userRole = 'admin';
         _widgetOptions = [
           const HomePage(),
-          CustomersPage(key: _customerPageKey), // 3. ASSIGN THE KEY
+          CustomersPage(key: _customerPageKey),
           const NewLoanWorkflowPage(),
           const AllLoansPage(),
         ];
         _navBarItems = [
-          const BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: 'Dashboard'),
-          const BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Customers'),
-          const BottomNavigationBarItem(icon: Icon(Icons.add_circle), label: 'New Loan'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard), label: 'Dashboard'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.people), label: 'Customers'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.add_circle), label: 'New Loan'),
           const BottomNavigationBarItem(icon: Icon(Icons.list), label: 'All Loans'),
         ];
         _selectedIndex = 0;
@@ -65,13 +68,15 @@ class _MainScaffoldState extends State<MainScaffold> {
       setState(() {
         _userRole = 'staff';
         _widgetOptions = [
-          CustomersPage(key: _customerPageKey), // 3. ASSIGN THE KEY
+          CustomersPage(key: _customerPageKey),
           const NewLoanWorkflowPage(),
           const AllLoansPage(),
         ];
         _navBarItems = [
-          const BottomNavigationBarItem(icon: Icon(Icons.people), label: 'Customers'),
-          const BottomNavigationBarItem(icon: Icon(Icons.add_circle), label: 'New Loan'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.people), label: 'Customers'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.add_circle), label: 'New Loan'),
           const BottomNavigationBarItem(icon: Icon(Icons.list), label: 'All Loans'),
         ];
         _selectedIndex = 0;
@@ -95,6 +100,12 @@ class _MainScaffoldState extends State<MainScaffold> {
         MaterialPageRoute(builder: (context) => const ManageStaffPage()),
       );
     }
+    // --- NEW: Handle Recycle Bin Navigation ---
+    if (value == 'recycle_bin') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (context) => const RecycleBinPage()),
+      );
+    }
   }
 
   Widget? _getFloatingActionButton() {
@@ -102,14 +113,13 @@ class _MainScaffoldState extends State<MainScaffold> {
 
     if (currentTabLabel == 'Customers') {
       return FloatingActionButton(
-        // 4. UPDATE THE ONPRESSED FUNCTION
         onPressed: () {
-          Navigator.of(context).push(
+          Navigator.of(context)
+              .push(
             MaterialPageRoute(builder: (context) => const AddCustomerPage()),
-          ).then((didAddCustomer) {
-            // This runs when we come back from the AddCustomerPage
+          )
+              .then((didAddCustomer) {
             if (didAddCustomer == true) {
-              // Call the public refresh method on the CustomersPage
               _customerPageKey.currentState?.handleRefresh();
             }
           });
@@ -140,6 +150,12 @@ class _MainScaffoldState extends State<MainScaffold> {
                 const PopupMenuItem(
                   value: 'manage_staff',
                   child: Text('Manage Staff'),
+                ),
+              // --- NEW: Recycle Bin Menu Item ---
+              if (_userRole == 'admin')
+                const PopupMenuItem(
+                  value: 'recycle_bin',
+                  child: Text('Recycle Bin'),
                 ),
               const PopupMenuItem(
                 value: 'logout',
