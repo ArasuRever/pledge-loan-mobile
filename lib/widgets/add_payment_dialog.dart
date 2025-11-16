@@ -20,7 +20,7 @@ class _AddPaymentDialogState extends State<AddPaymentDialog> {
   final _formKey = GlobalKey<FormState>();
   final _apiService = ApiService();
   final _amountController = TextEditingController();
-  final _detailsController = TextEditingController();
+  // final _detailsController = TextEditingController(); // <-- FIX: Removed
 
   String _paymentType = 'interest'; // Default payment type
   bool _isLoading = false;
@@ -37,13 +37,11 @@ class _AddPaymentDialogState extends State<AddPaymentDialog> {
     });
 
     try {
+      // --- FIX: Removed the 'details' parameter ---
       await _apiService.addPayment(
         loanId: widget.loanId,
         amount: _amountController.text,
         paymentType: _paymentType,
-        details: _detailsController.text.isNotEmpty
-            ? _detailsController.text
-            : '$_paymentType payment',
       );
 
       if (mounted) {
@@ -61,6 +59,13 @@ class _AddPaymentDialogState extends State<AddPaymentDialog> {
         });
       }
     }
+  }
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    // _detailsController.dispose(); // <-- FIX: Removed
+    super.dispose();
   }
 
   @override
@@ -114,15 +119,8 @@ class _AddPaymentDialogState extends State<AddPaymentDialog> {
                   return null;
                 },
               ),
-              const SizedBox(height: 16),
-              // Details Field
-              TextFormField(
-                controller: _detailsController,
-                decoration: const InputDecoration(
-                  labelText: 'Details (Optional)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
+              // --- FIX: Removed Details Field ---
+
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
                 Text(

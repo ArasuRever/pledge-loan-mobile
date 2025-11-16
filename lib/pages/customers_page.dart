@@ -2,8 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/models/customer_model.dart';
-// TODO: We will create this page in Step 3
-// import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
+import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
 
 class CustomersPage extends StatefulWidget {
   // Add the key parameter
@@ -131,12 +130,15 @@ class CustomersPageState extends State<CustomersPage> {
                           title: Text(customer.name),
                           subtitle: Text(customer.phoneNumber),
                           onTap: () {
-                            // TODO: Navigate to customer detail page
-                            // Navigator.of(context).push(
-                            //   MaterialPageRoute(
-                            //     builder: (context) => CustomerDetailPage(customerId: customer.id),
-                            //   ),
-                            // );
+                            // Navigate to customer detail page
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => CustomerDetailPage(
+                                  customerId: customer.id,
+                                  customerName: customer.name,
+                                ),
+                              ),
+                            );
                           },
                         ),
                       );
