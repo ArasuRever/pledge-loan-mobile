@@ -14,8 +14,8 @@ import 'package:pledge_loan_mobile/models/transaction_model.dart';
 import 'package:pledge_loan_mobile/models/customer_loan_model.dart';
 import 'package:pledge_loan_mobile/models/user_model.dart';
 import 'package:pledge_loan_mobile/models/recycle_bin_model.dart';
-// --- NEW: Import History Model ---
 import 'package:pledge_loan_mobile/models/loan_history_model.dart';
+import 'package:pledge_loan_mobile/models/financial_report_model.dart';
 
 
 class ApiService {
@@ -158,7 +158,7 @@ class ApiService {
     }
   }
 
-  // --- NEW: Get Loan History ---
+  // --- Get Loan History ---
   Future<List<LoanHistoryItem>> getLoanHistory(int loanId) async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -174,7 +174,6 @@ class ApiService {
       throw Exception('Failed to load loan history: ${response.body}');
     }
   }
-  // --- END NEW ---
 
   Future<Map<String, dynamic>> createLoan(
       {required Map<String, String> loanData, File? imageFile}) async {
@@ -253,6 +252,7 @@ class ApiService {
       headers: headers,
       body: jsonEncode({
         'discountAmount': discountAmount ?? '0',
+        'settlementAmount': '0', // Default for now as dialog doesn't support it yet
       }),
     );
     if (response.statusCode == 200) {
@@ -361,7 +361,7 @@ class ApiService {
     }
   }
 
-  // --- RECYCLE BIN FUNCTIONS ---
+  // --- RECYCLE BIN FUNCTIONS (Soft Delete/Restore) ---
 
   Future<RecycleBinData> getRecycleBinData() async {
     final headers = await _getAuthHeaders();
@@ -429,6 +429,54 @@ class ApiService {
     } else {
       final errorBody = jsonDecode(response.body);
       throw Exception(errorBody['error'] ?? 'Failed to restore loan');
+    }
+  }
+
+  // --- NEW: PERMANENT DELETE FUNCTIONS ---
+
+  Future<Map<String, dynamic>> permanentDeleteCustomer(int customerId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/customers/$customerId/permanent-delete'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['error'] ?? 'Failed to permanently delete customer.');
+    }
+  }
+
+  Future<Map<String, dynamic>> permanentDeleteLoan(int loanId) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/loans/$loanId/permanent-delete'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      final errorBody = jsonDecode(response.body);
+      throw Exception(errorBody['error'] ?? 'Failed to permanently delete loan.');
+    }
+  }
+
+  // --- FINANCIAL REPORT ---
+  Future<FinancialReport> getFinancialReport(String startDate, String endDate) async {
+    final headers = await _getAuthHeaders();
+    // Append query parameters
+    final uri = Uri.parse('$_baseUrl/reports/financial-summary').replace(queryParameters: {
+      'startDate': startDate,
+      'endDate': endDate,
+    });
+
+    final response = await http.get(uri, headers: headers);
+
+    if (response.statusCode == 200) {
+      return FinancialReport.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Failed to load financial report: ${response.body}');
     }
   }
 }

@@ -2,14 +2,15 @@
 import 'package:flutter/material.dart';
 import 'package:pledge_loan_mobile/models/customer_loan_model.dart';
 import 'package:pledge_loan_mobile/models/customer_model.dart';
-import 'package:pledge_loan_mobile/models/customer_page_data.dart'; // Import new holder
+import 'package:pledge_loan_mobile/models/customer_page_data.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/pages/loan_detail_page.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // --- NEW IMPORT ---
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pledge_loan_mobile/pages/loan_form_page.dart';
 
 class CustomerDetailPage extends StatefulWidget {
   final int customerId;
-  final String customerName; // Passed in for the AppBar title
+  final String customerName;
 
   const CustomerDetailPage({
     super.key,
@@ -24,16 +25,15 @@ class CustomerDetailPage extends StatefulWidget {
 class _CustomerDetailPageState extends State<CustomerDetailPage> {
   late Future<CustomerPageData> _pageDataFuture;
   final ApiService _apiService = ApiService();
-  String? _userRole; // --- NEW STATE FOR ROLE ---
+  String? _userRole;
 
   @override
   void initState() {
     super.initState();
-    _loadUserRole(); // --- NEW: Load role ---
+    _loadUserRole();
     _pageDataFuture = _loadPageData();
   }
 
-  // --- NEW: Function to load user role ---
   Future<void> _loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
     if (mounted) {
@@ -59,7 +59,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     }
   }
 
-  // --- NEW: Handle Delete Customer ---
   Future<void> _handleDeleteCustomer() async {
     final confirmed = await _showConfirmationDialog(
         context,
@@ -73,7 +72,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
           content: Text(result['message'] ?? 'Customer moved to recycle bin.'),
           backgroundColor: Colors.green,
         ));
-        // Pop back to customer list, returning 'true' to signal a refresh
         Navigator.of(context).pop(true);
       } catch (e) {
         if (!mounted) return;
@@ -85,7 +83,19 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     }
   }
 
-  // --- NEW: Confirmation Dialog Helper ---
+  void _navigateToNewPledge(Customer customer) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => LoanFormPage(customer: customer),
+      ),
+    ).then((_) {
+      // Refresh the page when we come back (to see the new loan)
+      setState(() {
+        _pageDataFuture = _loadPageData();
+      });
+    });
+  }
+
   Future<bool> _showConfirmationDialog(
       BuildContext context, String title, String content) async {
     return (await showDialog<bool>(
@@ -117,7 +127,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       ),
     )
         .then((_) {
-      // Refresh when coming back from the loan detail page
       setState(() {
         _pageDataFuture = _loadPageData();
       });
@@ -129,7 +138,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.customerName),
-        // --- NEW: Add Delete Button for Admin ---
         actions: [
           if (_userRole == 'admin')
             IconButton(
@@ -139,6 +147,20 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
               onPressed: _handleDeleteCustomer,
             ),
         ],
+      ),
+      floatingActionButton: FutureBuilder<CustomerPageData>(
+        future: _pageDataFuture,
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            return FloatingActionButton.extended(
+              onPressed: () => _navigateToNewPledge(snapshot.data!.customer),
+              label: const Text('New Pledge'),
+              icon: const Icon(Icons.add),
+              backgroundColor: Colors.green,
+            );
+          }
+          return const SizedBox.shrink(); // Hide if data not loaded
+        },
       ),
       body: FutureBuilder<CustomerPageData>(
         future: _pageDataFuture,
@@ -166,7 +188,8 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
               .toList();
 
           return ListView(
-            padding: const EdgeInsets.all(16.0),
+            // --- FIXED: Removed duplicate padding ---
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 80),
             children: [
               _buildCustomerDetailsCard(context, customer),
               const SizedBox(height: 24),

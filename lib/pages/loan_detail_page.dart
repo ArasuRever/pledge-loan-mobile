@@ -1,5 +1,6 @@
 // lib/pages/loan_detail_page.dart
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
 import 'package:pledge_loan_mobile/models/transaction_model.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
@@ -191,6 +192,25 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
         false;
   }
 
+  String _formatDateString(String? dateStr) {
+    if (dateStr == null) return 'N/A';
+    try {
+      final date = DateTime.parse(dateStr).toLocal();
+      return DateFormat('dd-MMM-yyyy').format(date);
+    } catch (e) {
+      return dateStr.split('T')[0];
+    }
+  }
+
+  // Helper to format stats
+  String formatStat(String value) {
+    try {
+      return '₹${double.parse(value).toStringAsFixed(0)}';
+    } catch (e) {
+      return '₹---';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -267,6 +287,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                   children: [
                     _buildLoanSummaryCard(loan),
                     const SizedBox(height: 20),
+                    _buildInterestBreakdownCard(loan), // --- NEW WIDGET ---
+                    const SizedBox(height: 20),
                     _buildItemDetailsCard(loan),
                     const SizedBox(height: 20),
                     _buildTransactionsList(loan.transactions),
@@ -284,12 +306,17 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
 
   Widget _buildLoanSummaryCard(LoanDetail loan) {
     final stats = loan.calculated;
-    String formatStat(String value) {
-      try {
-        return '₹${double.parse(value).toStringAsFixed(0)}';
-      } catch (e) {
-        return '₹---';
-      }
+    final isClosed = loan.status == 'paid' || loan.status == 'forfeited';
+
+    double discountAmount = 0;
+    try {
+      final discountTx = loan.transactions.firstWhere(
+            (tx) => tx.paymentType == 'discount',
+        orElse: () => Transaction(id: 0, amountPaid: '0', paymentType: '', paymentDate: ''),
+      );
+      discountAmount = double.parse(discountTx.amountPaid);
+    } catch (e) {
+      // ignore
     }
 
     return Card(
@@ -309,31 +336,101 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
             _buildDetailRow('Status', loan.status.toUpperCase(),
                 valueColor: _getStatusColor(loan.status)),
             _buildDetailRow('Book #', loan.bookLoanNumber ?? 'N/A'),
-            _buildDetailRow('Pledge Date', loan.pledgeDate.split('T')[0]),
-            _buildDetailRow('Due Date', loan.dueDate.split('T')[0]),
+            _buildDetailRow('Pledge Date', _formatDateString(loan.pledgeDate)),
+
+            if (isClosed && loan.closedDate != null)
+              _buildDetailRow('Settled On', _formatDateString(loan.closedDate), valueColor: Colors.blueGrey)
+            else
+              _buildDetailRow('Due Date', _formatDateString(loan.dueDate)),
+
             const Divider(height: 24),
-            _buildDetailRow(
-                'Total Principal', formatStat(stats.outstandingPrincipal)),
+
+            _buildDetailRow('Total Principal', formatStat(loan.principalAmount)),
             _buildDetailRow('Interest Rate', '${loan.interestRate}% / month'),
-            _buildDetailRow('Principal Paid', formatStat(stats.principalPaid),
-                valueColor: Colors.green),
-            _buildDetailRow('Interest Paid', formatStat(stats.interestPaid),
-                valueColor: Colors.green),
-            _buildDetailRow('Total Paid', formatStat(stats.totalPaid),
-                valueColor: Colors.green),
-            const Divider(height: 24),
-            _buildDetailRow(
-                'Outstanding Principal', formatStat(stats.outstandingPrincipal),
-                valueColor: Colors.red),
-            _buildDetailRow(
-                'Outstanding Interest', formatStat(stats.outstandingInterest),
-                valueColor: Colors.red),
+
+            if (isClosed) ...[
+              const SizedBox(height: 10),
+              const Text("Settlement Details", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+              const Divider(),
+              _buildDetailRow('Total Paid', formatStat(stats.totalPaid), valueColor: Colors.green, isTotal: true),
+              if (discountAmount > 0)
+                _buildDetailRow('Discount Given', '₹${discountAmount.toStringAsFixed(0)}', valueColor: Colors.orange),
+            ] else ...[
+              _buildDetailRow('Principal Paid', formatStat(stats.principalPaid), valueColor: Colors.green),
+              _buildDetailRow('Interest Paid', formatStat(stats.interestPaid), valueColor: Colors.green),
+              const Divider(height: 24),
+              _buildDetailRow(
+                  'Outstanding Principal', formatStat(stats.outstandingPrincipal),
+                  valueColor: Colors.red),
+              _buildDetailRow(
+                  'Outstanding Interest', formatStat(stats.outstandingInterest),
+                  valueColor: Colors.red),
+              const SizedBox(height: 8),
+              _buildDetailRow(
+                'TOTAL AMOUNT DUE (today)',
+                formatStat(stats.amountDue),
+                valueColor: Colors.red,
+                isTotal: true,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- NEW: INTEREST BREAKDOWN CARD ---
+  Widget _buildInterestBreakdownCard(LoanDetail loan) {
+    if (loan.interestBreakdown.isEmpty) return const SizedBox.shrink();
+
+    // Only show if loan is active/overdue
+    if (loan.status != 'active' && loan.status != 'overdue') return const SizedBox.shrink();
+
+    return Card(
+      elevation: 2,
+      color: Colors.blue[50], // Light blue background
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Detailed Interest Breakdown", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue[900], fontSize: 16)),
             const SizedBox(height: 8),
-            _buildDetailRow(
-              'TOTAL AMOUNT DUE (as of today)',
-              formatStat(stats.amountDue),
-              valueColor: Colors.red,
-              isTotal: true,
+            Text("Calculated by system based on ${loan.interestRate}% p.m.", style: TextStyle(color: Colors.grey[700], fontSize: 12)),
+            const Divider(),
+            ...loan.interestBreakdown.map((item) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item.label, style: const TextStyle(fontWeight: FontWeight.bold)),
+                          Text("${_formatDateString(item.date)} (${formatStat(item.amount)})", style: const TextStyle(fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(formatStat(item.interest), style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text("${item.months.toStringAsFixed(2)} months", style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+            const Divider(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("TOTAL ACCRUED", style: TextStyle(fontWeight: FontWeight.bold)),
+                Text(formatStat(loan.calculated.totalInterestOwed), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+              ],
             ),
           ],
         ),
@@ -342,6 +439,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
   }
 
   Widget _buildItemDetailsCard(LoanDetail loan) {
+    // ... (unchanged logic)
     return Card(
       elevation: 2,
       child: Padding(
@@ -377,7 +475,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     if (loan.status != 'active' && loan.status != 'overdue') {
       return const SizedBox.shrink();
     }
-
+    // ... (unchanged)
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
@@ -431,8 +529,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- ⭐ THIS IS THE MODIFIED WIDGET ---
   Widget _buildTransactionsList(List<Transaction> transactions) {
+    // ... (unchanged)
     if (transactions.isEmpty) {
       return const Center(
         child: Padding(
@@ -459,10 +557,9 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
               itemBuilder: (context, index) {
                 final tx = transactions[index];
 
-                // --- Build the subtitle with username ---
-                String subtitle = tx.formattedDate;
+                String subtitle = _formatDateString(tx.paymentDate);
                 if (tx.changedByUsername != null) {
-                  subtitle += ' (by ${tx.changedByUsername})'; // Add username
+                  subtitle += ' (by ${tx.changedByUsername})';
                 }
 
                 return ListTile(
@@ -474,7 +571,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                     '${tx.paymentType[0].toUpperCase()}${tx.paymentType.substring(1)}',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
-                  subtitle: Text(subtitle), // --- Use the new subtitle ---
+                  subtitle: Text(subtitle),
                   trailing: Text(
                     '${tx.paymentType == 'disbursement' ? '+' : '-'}${tx.formattedAmount}',
                     style: TextStyle(
@@ -491,7 +588,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
       ),
     );
   }
-  // --- END OF MODIFIED WIDGET ---
 
   Widget _buildDetailRow(String label, String value,
       {Color? valueColor, bool isTotal = false}) {

@@ -1,8 +1,92 @@
 // lib/models/loan_detail_model.dart
 import 'package:pledge_loan_mobile/models/transaction_model.dart';
 
-// --- 1. NEW CLASS FOR THE CALCULATED STATS ---
-class CalculatedStats {
+class LoanDetail {
+  final int id;
+  final int customerId;
+  final String customerName;
+  final String? phoneNumber;
+  final String? customerImageUrl;
+  final String? bookLoanNumber;
+  final String principalAmount;
+  final String interestRate;
+  final String pledgeDate;
+  final String dueDate;
+  final String status;
+  final String? itemType;
+  final String? description;
+  final String? quality;
+  final String? weight;
+  final String? itemImageDataUrl;
+  final String? closedDate;
+  final List<Transaction> transactions;
+  final LoanCalculatedStats calculated;
+  // --- NEW: Breakdown List ---
+  final List<InterestBreakdownItem> interestBreakdown;
+
+  LoanDetail({
+    required this.id,
+    required this.customerId,
+    required this.customerName,
+    this.phoneNumber,
+    this.customerImageUrl,
+    this.bookLoanNumber,
+    required this.principalAmount,
+    required this.interestRate,
+    required this.pledgeDate,
+    required this.dueDate,
+    required this.status,
+    this.itemType,
+    this.description,
+    this.quality,
+    this.weight,
+    this.itemImageDataUrl,
+    this.closedDate,
+    required this.transactions,
+    required this.calculated,
+    // --- NEW ---
+    required this.interestBreakdown,
+  });
+
+  factory LoanDetail.fromJson(Map<String, dynamic> json) {
+    var list = json['transactions'] as List;
+    List<Transaction> transactionsList =
+    list.map((i) => Transaction.fromJson(i)).toList();
+
+    // --- PARSE BREAKDOWN ---
+    var breakdownList = <InterestBreakdownItem>[];
+    if (json['interestBreakdown'] != null) {
+      var listBD = json['interestBreakdown'] as List;
+      breakdownList = listBD.map((i) => InterestBreakdownItem.fromJson(i)).toList();
+    }
+
+    return LoanDetail(
+      id: json['loanDetails']['id'],
+      customerId: json['loanDetails']['customer_id'],
+      customerName: json['loanDetails']['customer_name'],
+      phoneNumber: json['loanDetails']['phone_number'],
+      customerImageUrl: json['loanDetails']['customer_image_url'],
+      bookLoanNumber: json['loanDetails']['book_loan_number'],
+      principalAmount: json['loanDetails']['principal_amount'],
+      interestRate: json['loanDetails']['interest_rate'],
+      pledgeDate: json['loanDetails']['pledge_date'],
+      dueDate: json['loanDetails']['due_date'],
+      status: json['loanDetails']['status'],
+      itemType: json['loanDetails']['item_type'],
+      description: json['loanDetails']['description'],
+      quality: json['loanDetails']['quality'],
+      weight: json['loanDetails']['weight'],
+      itemImageDataUrl: json['loanDetails']['item_image_data_url'],
+      closedDate: json['loanDetails']['closed_date'],
+      transactions: transactionsList,
+      calculated: LoanCalculatedStats.fromJson(json['calculated']),
+      // --- NEW ---
+      interestBreakdown: breakdownList,
+    );
+  }
+}
+
+class LoanCalculatedStats {
   final String totalInterestOwed;
   final String principalPaid;
   final String interestPaid;
@@ -11,7 +95,7 @@ class CalculatedStats {
   final String outstandingInterest;
   final String amountDue;
 
-  CalculatedStats({
+  LoanCalculatedStats({
     required this.totalInterestOwed,
     required this.principalPaid,
     required this.interestPaid,
@@ -21,93 +105,42 @@ class CalculatedStats {
     required this.amountDue,
   });
 
-  factory CalculatedStats.fromJson(Map<String, dynamic> json) {
-    return CalculatedStats(
-      totalInterestOwed: json['totalInterestOwed']?.toString() ?? '0.00',
-      principalPaid: json['principalPaid']?.toString() ?? '0.00',
-      interestPaid: json['interestPaid']?.toString() ?? '0.00',
-      totalPaid: json['totalPaid']?.toString() ?? '0.00',
-      outstandingPrincipal: json['outstandingPrincipal']?.toString() ?? '0.00',
-      outstandingInterest: json['outstandingInterest']?.toString() ?? '0.00',
-      amountDue: json['amountDue']?.toString() ?? '0.00',
+  factory LoanCalculatedStats.fromJson(Map<String, dynamic> json) {
+    return LoanCalculatedStats(
+      totalInterestOwed: json['totalInterestOwed'].toString(),
+      principalPaid: json['principalPaid'].toString(),
+      interestPaid: json['interestPaid'].toString(),
+      totalPaid: json['totalPaid'].toString(),
+      outstandingPrincipal: json['outstandingPrincipal'].toString(),
+      outstandingInterest: json['outstandingInterest'].toString(),
+      amountDue: json['amountDue'].toString(),
     );
   }
 }
 
-class LoanDetail {
-  // From 'loanDetails' object
-  final int id;
-  final String customerName;
-  final String? phoneNumber;
-  final String principalAmount;
-  final String interestRate;
-  final String status;
-  final String pledgeDate;
-  final String dueDate;
-  final String? bookLoanNumber;
-  final String? itemType;
-  final String? description;
-  final String? quality;
-  final String? weight;
-  final String? itemImageDataUrl;
+// --- NEW CLASS FOR BREAKDOWN ITEMS ---
+class InterestBreakdownItem {
+  final String label;
+  final String amount;
+  final String date;
+  final double months;
+  final String interest;
 
-  // From 'transactions' array
-  final List<Transaction> transactions;
-
-  // --- 2. ADD THE NEW CALCULATED OBJECT ---
-  final CalculatedStats calculated;
-
-  LoanDetail({
-    required this.id,
-    required this.customerName,
-    this.phoneNumber,
-    required this.principalAmount,
-    required this.interestRate,
-    required this.status,
-    required this.pledgeDate,
-    required this.dueDate,
-    this.bookLoanNumber,
-    this.itemType,
-    this.description,
-    this.quality,
-    this.weight,
-    this.itemImageDataUrl,
-    required this.transactions,
-    required this.calculated, // <-- Add to constructor
+  InterestBreakdownItem({
+    required this.label,
+    required this.amount,
+    required this.date,
+    required this.months,
+    required this.interest,
   });
 
-  factory LoanDetail.fromJson(Map<String, dynamic> json) {
-    final details = json['loanDetails'];
-    final transactionsData = json['transactions'] as List;
-    // --- 3. PARSE THE NEW OBJECT ---
-    final calculatedData = json['calculated'];
-
-    if (details == null || transactionsData == null || calculatedData == null) {
-      throw Exception('Invalid loan detail data from server.');
-    }
-
-    List<Transaction> parsedTransactions = transactionsData
-        .map((tx) => Transaction.fromJson(tx))
-        .toList();
-
-    return LoanDetail(
-      id: details['id'],
-      customerName: details['customer_name'],
-      phoneNumber: details['phone_number'],
-      principalAmount: details['principal_amount'].toString(),
-      interestRate: details['interest_rate'].toString(),
-      status: details['status'],
-      pledgeDate: details['pledge_date'],
-      dueDate: details['due_date'],
-      bookLoanNumber: details['book_loan_number'],
-      itemType: details['item_type'],
-      description: details['description'],
-      quality: details['quality'],
-      weight: details['weight']?.toString(),
-      itemImageDataUrl: details['item_image_data_url'],
-      transactions: parsedTransactions,
-      // --- 4. PASS THE PARSED OBJECT ---
-      calculated: CalculatedStats.fromJson(calculatedData),
+  factory InterestBreakdownItem.fromJson(Map<String, dynamic> json) {
+    return InterestBreakdownItem(
+      label: json['label'],
+      amount: json['amount'].toString(),
+      date: json['date'],
+      months: (json['months'] is int) ? (json['months'] as int).toDouble() : json['months'],
+      interest: json['interest'].toString(),
     );
   }
 }

@@ -7,8 +7,9 @@ import 'package:pledge_loan_mobile/pages/customers_page.dart';
 import 'package:pledge_loan_mobile/pages/new_loan_workflow_page.dart';
 import 'package:pledge_loan_mobile/pages/all_loans_page.dart';
 import 'package:pledge_loan_mobile/pages/add_customer_page.dart';
-// --- NEW: Import Recycle Bin Page ---
 import 'package:pledge_loan_mobile/pages/recycle_bin_page.dart';
+// --- NEW: Import Reports Page ---
+import 'package:pledge_loan_mobile/pages/reports_page.dart';
 
 class MainScaffold extends StatefulWidget {
   final VoidCallback onLogout;
@@ -100,10 +101,15 @@ class _MainScaffoldState extends State<MainScaffold> {
         MaterialPageRoute(builder: (context) => const ManageStaffPage()),
       );
     }
-    // --- NEW: Handle Recycle Bin Navigation ---
     if (value == 'recycle_bin') {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (context) => const RecycleBinPage()),
+      );
+    }
+    // --- NEW: Reports Navigation ---
+    if (value == 'reports') {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (context) => const ReportsPage()),
       );
     }
   }
@@ -151,11 +157,16 @@ class _MainScaffoldState extends State<MainScaffold> {
                   value: 'manage_staff',
                   child: Text('Manage Staff'),
                 ),
-              // --- NEW: Recycle Bin Menu Item ---
               if (_userRole == 'admin')
                 const PopupMenuItem(
                   value: 'recycle_bin',
                   child: Text('Recycle Bin'),
+                ),
+              // --- NEW: Reports Menu Item ---
+              if (_userRole == 'admin')
+                const PopupMenuItem(
+                  value: 'reports',
+                  child: Text('Financial Reports'),
                 ),
               const PopupMenuItem(
                 value: 'logout',
