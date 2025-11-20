@@ -9,7 +9,12 @@ import 'package:pledge_loan_mobile/widgets/settle_loan_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/renew_loan_dialog.dart';
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
+import 'package:pledge_loan_mobile/pages/customer_detail_page.dart'; // Import Customer Detail Page
 import 'dart:convert';
+import 'dart:typed_data'; // For PDF generation
+import 'package:pdf/pdf.dart'; // For PDF generation
+import 'package:pdf/widgets.dart' as pw; // For PDF generation
+import 'package:printing/printing.dart'; // For sharing/printing PDF
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pledge_loan_mobile/pages/loan_history_page.dart';
 
@@ -59,6 +64,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     }
   }
 
+  // ... (Keep existing dialog helper methods: _showAddPaymentDialog, _showSettleLoanDialog, etc.)
   void _showAddPaymentDialog() {
     showDialog(
       context: context,
@@ -174,6 +180,135 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     try { return '₹${double.parse(value).toStringAsFixed(0)}'; } catch (e) { return '₹---'; }
   }
 
+  // --- PDF GENERATOR ---
+  Future<void> _generateAndSharePdf(LoanDetail loan) async {
+    final doc = pw.Document();
+
+    doc.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Center(child: pw.Text('SRI KUBERA BANKERS', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold))),
+              pw.Center(child: pw.Text('123 Main Bazaar, Salem, Tamil Nadu - 636001', style: const pw.TextStyle(fontSize: 12))),
+              pw.Center(child: pw.Text('Phone: 9876543210', style: const pw.TextStyle(fontSize: 12))),
+              pw.Divider(),
+              pw.Center(child: pw.Text('PLEDGE TICKET / LOAN RECEIPT', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline))),
+              pw.SizedBox(height: 20),
+
+              // Info Grid (Loan & Customer)
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Loan Details
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(border: pw.Border.all()),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('LOAN DETAILS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline)),
+                          pw.SizedBox(height: 5),
+                          pw.Text('Loan No: ${loan.bookLoanNumber ?? loan.id}'),
+                          pw.Text('Date: ${_formatDateString(loan.pledgeDate)}'),
+                          pw.Text('Principal: ${formatStat(loan.principalAmount)}'),
+                          pw.Text('Interest: ${loan.interestRate}% p.m.'),
+                          pw.Text('Due Date: ${_formatDateString(loan.dueDate)}'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  pw.SizedBox(width: 20),
+                  // Customer Details
+                  pw.Expanded(
+                    child: pw.Container(
+                      padding: const pw.EdgeInsets.all(10),
+                      decoration: pw.BoxDecoration(border: pw.Border.all()),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.start,
+                        children: [
+                          pw.Text('CUSTOMER DETAILS', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline)),
+                          pw.SizedBox(height: 5),
+                          pw.Text('Name: ${loan.customerName}'),
+                          pw.Text('Phone: ${loan.phoneNumber}'),
+                          pw.Text('Address: ${loan.address ?? 'N/A'}'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 20),
+
+              // Item Details Table
+              pw.Text('PARTICULARS OF PLEDGED ARTICLES:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline)),
+              pw.SizedBox(height: 5),
+              pw.Table.fromTextArray(
+                headers: ['Description', 'Type', 'Gross Wt', 'Net Wt', 'Purity'],
+                data: [
+                  [
+                    '${loan.description} (${loan.itemType})',
+                    loan.itemType?.toUpperCase() ?? 'N/A',
+                    '${loan.grossWeight ?? loan.weight ?? '-'} g',
+                    '${loan.netWeight ?? '-'} g',
+                    loan.purity ?? '-',
+                  ]
+                ],
+                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                cellAlignment: pw.Alignment.centerLeft,
+              ),
+              pw.SizedBox(height: 10),
+              pw.Align(
+                alignment: pw.Alignment.centerRight,
+                child: pw.Text('Appraised Value: ${formatStat(loan.appraisedValue ?? '0')}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              ),
+
+              pw.SizedBox(height: 30),
+              // Declaration
+              pw.Container(
+                padding: const pw.EdgeInsets.all(10),
+                decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey)),
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text('Terms & Declaration:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+                    pw.Bullet(text: 'I acknowledge receipt of the principal amount mentioned above.'),
+                    pw.Bullet(text: 'I am the absolute owner of these articles and they are free from any encumbrance.'),
+                    pw.Bullet(text: 'If interest is not paid for more than 12 months, the lender has the right to auction the articles.'),
+                  ],
+                ),
+              ),
+
+              pw.Spacer(),
+              // Signatures
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Column(children: [
+                    pw.Container(width: 150, height: 1, color: PdfColors.black),
+                    pw.SizedBox(height: 5),
+                    pw.Text('Signature of Borrower'),
+                  ]),
+                  pw.Column(children: [
+                    pw.Container(width: 150, height: 1, color: PdfColors.black),
+                    pw.SizedBox(height: 5),
+                    pw.Text('For SRI KUBERA BANKERS'),
+                    pw.Text('(Authorized Signatory)', style: const pw.TextStyle(fontSize: 10)),
+                  ]),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+
+    await Printing.sharePdf(bytes: await doc.save(), filename: 'Loan_Invoice_${loan.bookLoanNumber}.pdf');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -201,6 +336,13 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                         tooltip: 'Renew / Rollover Loan',
                         onPressed: () => _showRenewLoanDialog(loan),
                       ),
+
+                    // --- Share Invoice Button (New) ---
+                    IconButton(
+                      icon: const Icon(Icons.share),
+                      tooltip: 'Share Invoice PDF',
+                      onPressed: () => _generateAndSharePdf(loan),
+                    ),
 
                     IconButton(icon: const Icon(Icons.history), tooltip: 'View History', onPressed: _navigateToHistory),
 
@@ -248,77 +390,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- CLASSIC ACTION BUTTONS (Reverted Style) ---
-  Widget _buildActionButtons(LoanDetail loan) {
-    if (loan.status != 'active' && loan.status != 'overdue') {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, -2)),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Row 1: Add Principal & Add Payment
-          Row(
-            children: [
-              Expanded(
-                  child: ElevatedButton(
-                      onPressed: _showAddPrincipalDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text(
-                          'Add Principal',
-                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
-                      )
-                  )
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                  child: ElevatedButton(
-                      onPressed: _showAddPaymentDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text(
-                          'Add Payment',
-                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
-                      )
-                  )
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          // Row 2: Settle & Close (Full Width)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-                onPressed: _showSettleLoanDialog,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: const Text(
-                    'Settle & Close Loan',
-                    style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
-                )
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
+  // --- UPDATED: Clickable Customer Card ---
   Widget _buildLoanSummaryCard(LoanDetail loan) {
     final stats = loan.calculated;
     final isClosed = loan.status != 'active' && loan.status != 'overdue';
@@ -335,20 +407,37 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(loan.customerName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 4),
-                      Text(loan.phoneNumber ?? 'No phone', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-                      if (loan.address != null && loan.address!.isNotEmpty)
-                        Padding(padding: const EdgeInsets.only(top: 4.0), child: Text(loan.address!, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[500]))),
-                    ],
+                  child: InkWell( // Make clickable
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => CustomerDetailPage(
+                            customerId: loan.customerId,
+                            customerName: loan.customerName,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            loan.customerName,
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.indigo, decoration: TextDecoration.underline) // Visual cue
+                        ),
+                        const SizedBox(height: 4),
+                        Text(loan.phoneNumber ?? 'No phone', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+                        if (loan.address != null && loan.address!.isNotEmpty)
+                          Padding(padding: const EdgeInsets.only(top: 4.0), child: Text(loan.address!, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[500]))),
+                      ],
+                    ),
                   ),
                 ),
                 _buildStatusBadge(loan.status),
               ],
             ),
+            // ... (Rest of the card content remains the same as previous versions)
             const Divider(height: 32),
             _buildDetailRow('Book #', loan.bookLoanNumber ?? 'N/A'),
             _buildDetailRow('Pledge Date', _formatDateString(loan.pledgeDate)),
@@ -487,6 +576,77 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
           );
         }).toList()
       ],
+    );
+  }
+
+  // --- Classic Button Style for Bottom Actions ---
+  Widget _buildActionButtons(LoanDetail loan) {
+    if (loan.status != 'active' && loan.status != 'overdue') {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, -2)),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Row 1: Add Principal & Add Payment
+          Row(
+            children: [
+              Expanded(
+                  child: ElevatedButton(
+                      onPressed: _showAddPrincipalDialog,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text(
+                          'Add Principal',
+                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
+                      )
+                  )
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: ElevatedButton(
+                      onPressed: _showAddPaymentDialog,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      child: const Text(
+                          'Add Payment',
+                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
+                      )
+                  )
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Row 2: Settle & Close (Full Width)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+                onPressed: _showSettleLoanDialog,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text(
+                    'Settle & Close Loan',
+                    style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
+                )
+            ),
+          ),
+        ],
+      ),
     );
   }
 

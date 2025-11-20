@@ -1,11 +1,35 @@
 // lib/pages/home_page.dart
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/pages/day_book_page.dart';
-import 'package:pledge_loan_mobile/pages/reports_page.dart'; // --- NEW IMPORT
+import 'package:pledge_loan_mobile/pages/reports_page.dart';
+import 'package:pledge_loan_mobile/pages/manage_staff_page.dart'; // --- NEW IMPORT
 
-class HomePage extends StatelessWidget {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  String? _userRole;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserRole();
+  }
+
+  Future<void> _loadUserRole() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _userRole = prefs.getString('role');
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,16 +96,29 @@ class HomePage extends StatelessWidget {
                 ),
               ),
 
-              // --- 5. NEW: REPORTS CARD ---
-              InkWell(
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ReportsPage())),
-                child: const DashboardCard(
-                  title: 'Financial Reports',
-                  icon: Icons.analytics,
-                  color: Colors.teal, // Distinct color
-                  statsContent: Center(child: Text("Profit\n& Loss", textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white))),
+              // 5. Reports (Only if Admin)
+              if (_userRole == 'admin')
+                InkWell(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ReportsPage())),
+                  child: const DashboardCard(
+                    title: 'Reports',
+                    icon: Icons.analytics,
+                    color: Colors.teal,
+                    statsContent: Center(child: Text("Profit\n& Loss", textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white))),
+                  ),
                 ),
-              ),
+
+              // 6. Manage Staff (Only if Admin)
+              if (_userRole == 'admin')
+                InkWell(
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ManageStaffPage())),
+                  child: const DashboardCard(
+                    title: 'Manage Staff',
+                    icon: Icons.manage_accounts,
+                    color: Colors.blueGrey,
+                    statsContent: Center(child: Text("Users\n& Roles", textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white))),
+                  ),
+                ),
             ],
           ),
         );
