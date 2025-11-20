@@ -6,6 +6,7 @@ class LoanDetail {
   final int customerId;
   final String customerName;
   final String? phoneNumber;
+  final String? address; // Added Address
   final String? customerImageUrl;
   final String? bookLoanNumber;
   final String principalAmount;
@@ -16,12 +17,17 @@ class LoanDetail {
   final String? itemType;
   final String? description;
   final String? quality;
-  final String? weight;
+  final String? weight; // Legacy weight (Gross)
+  // --- NEW ITEM FIELDS ---
+  final String? grossWeight;
+  final String? netWeight;
+  final String? purity;
+  final String? appraisedValue;
+
   final String? itemImageDataUrl;
   final String? closedDate;
   final List<Transaction> transactions;
   final LoanCalculatedStats calculated;
-  // --- NEW: Breakdown List ---
   final List<InterestBreakdownItem> interestBreakdown;
 
   LoanDetail({
@@ -29,6 +35,7 @@ class LoanDetail {
     required this.customerId,
     required this.customerName,
     this.phoneNumber,
+    this.address,
     this.customerImageUrl,
     this.bookLoanNumber,
     required this.principalAmount,
@@ -40,11 +47,16 @@ class LoanDetail {
     this.description,
     this.quality,
     this.weight,
+    // --- NEW ---
+    this.grossWeight,
+    this.netWeight,
+    this.purity,
+    this.appraisedValue,
+
     this.itemImageDataUrl,
     this.closedDate,
     required this.transactions,
     required this.calculated,
-    // --- NEW ---
     required this.interestBreakdown,
   });
 
@@ -53,34 +65,43 @@ class LoanDetail {
     List<Transaction> transactionsList =
     list.map((i) => Transaction.fromJson(i)).toList();
 
-    // --- PARSE BREAKDOWN ---
     var breakdownList = <InterestBreakdownItem>[];
     if (json['interestBreakdown'] != null) {
       var listBD = json['interestBreakdown'] as List;
       breakdownList = listBD.map((i) => InterestBreakdownItem.fromJson(i)).toList();
     }
 
+    // Helper to safely convert numeric/string fields
+    String? safeString(dynamic val) => val?.toString();
+
     return LoanDetail(
       id: json['loanDetails']['id'],
       customerId: json['loanDetails']['customer_id'],
       customerName: json['loanDetails']['customer_name'],
       phoneNumber: json['loanDetails']['phone_number'],
+      address: json['loanDetails']['address'], // Added
       customerImageUrl: json['loanDetails']['customer_image_url'],
       bookLoanNumber: json['loanDetails']['book_loan_number'],
-      principalAmount: json['loanDetails']['principal_amount'],
-      interestRate: json['loanDetails']['interest_rate'],
+      principalAmount: safeString(json['loanDetails']['principal_amount']) ?? '0',
+      interestRate: safeString(json['loanDetails']['interest_rate']) ?? '0',
       pledgeDate: json['loanDetails']['pledge_date'],
       dueDate: json['loanDetails']['due_date'],
       status: json['loanDetails']['status'],
       itemType: json['loanDetails']['item_type'],
       description: json['loanDetails']['description'],
       quality: json['loanDetails']['quality'],
-      weight: json['loanDetails']['weight'],
+      weight: safeString(json['loanDetails']['weight']),
+
+      // --- MAP NEW FIELDS ---
+      grossWeight: safeString(json['loanDetails']['gross_weight']),
+      netWeight: safeString(json['loanDetails']['net_weight']),
+      purity: json['loanDetails']['purity'],
+      appraisedValue: safeString(json['loanDetails']['appraised_value']),
+
       itemImageDataUrl: json['loanDetails']['item_image_data_url'],
       closedDate: json['loanDetails']['closed_date'],
       transactions: transactionsList,
       calculated: LoanCalculatedStats.fromJson(json['calculated']),
-      // --- NEW ---
       interestBreakdown: breakdownList,
     );
   }
@@ -118,7 +139,6 @@ class LoanCalculatedStats {
   }
 }
 
-// --- NEW CLASS FOR BREAKDOWN ITEMS ---
 class InterestBreakdownItem {
   final String label;
   final String amount;

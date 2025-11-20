@@ -1,8 +1,8 @@
 // lib/pages/new_loan_workflow_page.dart
 import 'package:flutter/material.dart';
-import 'package:pledge_loan_mobile/models/customer_model.dart'; // <-- THE FIX
-import 'package:pledge_loan_mobile/services/api_service.dart'; // <-- THE FIX
-import 'loan_form_page.dart'; // <-- THE FIX
+import 'package:pledge_loan_mobile/models/customer_model.dart';
+import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'loan_form_page.dart';
 
 class NewLoanWorkflowPage extends StatefulWidget {
   const NewLoanWorkflowPage({super.key});
@@ -58,7 +58,11 @@ class _NewLoanWorkflowPageState extends State<NewLoanWorkflowPage> {
   void _onCustomerSelected(Customer customer) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => LoanFormPage(customer: customer),
+        builder: (context) => LoanFormPage(
+          // --- FIX: Pass ID and Name separately ---
+          customerId: customer.id,
+          customerName: customer.name,
+        ),
       ),
     );
   }

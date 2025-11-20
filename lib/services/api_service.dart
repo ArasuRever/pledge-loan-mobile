@@ -1,12 +1,11 @@
 // lib/services/api_service.dart
-import 'package:flutter/material.dart'; // For debugPrint
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert'; // For jsonDecode
+import 'dart:convert';
 import 'dart:io';
 import 'package:http_parser/http_parser.dart';
 
-// Import all of your models
 import 'package:pledge_loan_mobile/models/customer_model.dart';
 import 'package:pledge_loan_mobile/models/loan_model.dart';
 import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
@@ -17,17 +16,15 @@ import 'package:pledge_loan_mobile/models/recycle_bin_model.dart';
 import 'package:pledge_loan_mobile/models/loan_history_model.dart';
 import 'package:pledge_loan_mobile/models/financial_report_model.dart';
 
-
 class ApiService {
+  // Ensure this URL matches your live server
   final String _baseUrl = 'https://pledge-loan-api-as.onrender.com/api';
 
-  // Helper function to get the saved token
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('jwt_token');
   }
 
-  // Helper to create authenticated headers
   Future<Map<String, String>> _getAuthHeaders() async {
     final token = await _getToken();
     if (token == null) {
@@ -68,9 +65,7 @@ class ApiService {
     );
     if (response.statusCode == 200) {
       List<dynamic> body = jsonDecode(response.body);
-      List<Customer> customers =
-      body.map((dynamic item) => Customer.fromJson(item)).toList();
-      return customers;
+      return body.map((dynamic item) => Customer.fromJson(item)).toList();
     } else {
       throw Exception('Failed to load customers: ${response.body}');
     }
@@ -97,32 +92,98 @@ class ApiService {
     );
     if (response.statusCode == 200) {
       List<dynamic> body = jsonDecode(response.body);
-      List<CustomerLoan> loans =
-      body.map((dynamic item) => CustomerLoan.fromJson(item)).toList();
-      return loans;
+      return body.map((dynamic item) => CustomerLoan.fromJson(item)).toList();
     } else {
       throw Exception('Failed to load customer loans: ${response.body}');
     }
   }
 
+  // --- MODIFIED: Added KYC fields ---
   Future<Map<String, dynamic>> addCustomer({
     required String name,
     required String phoneNumber,
     required String address,
+    // New Optional Fields
+    String? idProofType,
+    String? idProofNumber,
+    String? nomineeName,
+    String? nomineeRelation,
+    File? photoFile, // Support for photo upload
   }) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
+
     var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/customers'));
     request.headers['Authorization'] = 'Bearer $token';
+
+    // Core Fields
     request.fields['name'] = name;
     request.fields['phone_number'] = phoneNumber;
     request.fields['address'] = address;
+
+    // New Fields (Send only if provided)
+    if (idProofType != null) request.fields['id_proof_type'] = idProofType;
+    if (idProofNumber != null) request.fields['id_proof_number'] = idProofNumber;
+    if (nomineeName != null) request.fields['nominee_name'] = nomineeName;
+    if (nomineeRelation != null) request.fields['nominee_relation'] = nomineeRelation;
+
+    if (photoFile != null) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'photo',
+          photoFile.path,
+          contentType: MediaType('image', 'jpeg'),
+        ),
+      );
+    }
+
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
+
     if (response.statusCode == 201) {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to add customer: ${response.body}');
+    }
+  }
+
+  // --- NEW: Update Customer (For Edit Profile) ---
+  Future<Map<String, dynamic>> updateCustomer({
+    required int id,
+    required String name,
+    required String phoneNumber,
+    required String address,
+    String? idProofType,
+    String? idProofNumber,
+    String? nomineeName,
+    String? nomineeRelation,
+    File? photoFile,
+  }) async {
+    final token = await _getToken();
+    if (token == null) throw Exception('Not authenticated');
+
+    var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/customers/$id'));
+    request.headers['Authorization'] = 'Bearer $token';
+
+    request.fields['name'] = name;
+    request.fields['phone_number'] = phoneNumber;
+    request.fields['address'] = address;
+    if (idProofType != null) request.fields['id_proof_type'] = idProofType;
+    if (idProofNumber != null) request.fields['id_proof_number'] = idProofNumber;
+    if (nomineeName != null) request.fields['nominee_name'] = nomineeName;
+    if (nomineeRelation != null) request.fields['nominee_relation'] = nomineeRelation;
+
+    if (photoFile != null) {
+      request.files.add(await http.MultipartFile.fromPath('photo', photoFile.path, contentType: MediaType('image', 'jpeg')));
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to update customer: ${response.body}');
     }
   }
 
@@ -135,12 +196,9 @@ class ApiService {
     );
     if (response.statusCode == 200) {
       List<dynamic> body = jsonDecode(response.body);
-      List<Loan> loans =
-      body.map((dynamic item) => Loan.fromJson(item)).toList();
-      return loans;
+      return body.map((dynamic item) => Loan.fromJson(item)).toList();
     } else {
-      throw Exception(
-          'Failed to load loans. Status code: ${response.statusCode}');
+      throw Exception('Failed to load loans. Status code: ${response.statusCode}');
     }
   }
 
@@ -153,12 +211,10 @@ class ApiService {
     if (response.statusCode == 200) {
       return LoanDetail.fromJson(jsonDecode(response.body));
     } else {
-      throw Exception(
-          'Failed to load loan details. Status code: ${response.statusCode}');
+      throw Exception('Failed to load loan details. Status code: ${response.statusCode}');
     }
   }
 
-  // --- Get Loan History ---
   Future<List<LoanHistoryItem>> getLoanHistory(int loanId) async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -167,16 +223,14 @@ class ApiService {
     );
     if (response.statusCode == 200) {
       List<dynamic> body = jsonDecode(response.body);
-      List<LoanHistoryItem> history =
-      body.map((dynamic item) => LoanHistoryItem.fromJson(item)).toList();
-      return history;
+      return body.map((dynamic item) => LoanHistoryItem.fromJson(item)).toList();
     } else {
       throw Exception('Failed to load loan history: ${response.body}');
     }
   }
 
-  Future<Map<String, dynamic>> createLoan(
-      {required Map<String, String> loanData, File? imageFile}) async {
+  // Note: loanData Map should now include 'gross_weight', 'net_weight', 'purity', 'appraised_value'
+  Future<Map<String, dynamic>> createLoan({required Map<String, String> loanData, File? imageFile}) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
     var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/loans'));
@@ -206,8 +260,7 @@ class ApiService {
   }) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
-    var request =
-    http.MultipartRequest('PUT', Uri.parse('$_baseUrl/loans/$loanId'));
+    var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/loans/$loanId'));
     request.headers['Authorization'] = 'Bearer $token';
     request.fields.addAll(loanData);
     final streamedResponse = await request.send();
@@ -252,7 +305,7 @@ class ApiService {
       headers: headers,
       body: jsonEncode({
         'discountAmount': discountAmount ?? '0',
-        'settlementAmount': '0', // Default for now as dialog doesn't support it yet
+        'settlementAmount': '0',
       }),
     );
     if (response.statusCode == 200) {
@@ -264,6 +317,37 @@ class ApiService {
         if (errorBody['error'] != null) errorMessage = errorBody['error'];
       } catch (_) {}
       throw Exception(errorMessage);
+    }
+  }
+
+  // - Add this method
+  Future<Map<String, dynamic>> renewLoan({
+    required int oldLoanId,
+    required String interestPaid,
+    required String newBookLoanNumber,
+    required String newInterestRate,
+  }) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/loans/$oldLoanId/renew'),
+      headers: headers,
+      body: jsonEncode({
+        'interestPaid': interestPaid,
+        'newBookLoanNumber': newBookLoanNumber,
+        'newInterestRate': newInterestRate,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      // Handle specific backend errors (like "New Book Loan Number already exists")
+      String msg = 'Failed to renew loan.';
+      try {
+        final body = jsonDecode(response.body);
+        msg = body['error'] ?? msg;
+      } catch (_) {}
+      throw Exception(msg);
     }
   }
 
@@ -300,31 +384,32 @@ class ApiService {
     );
     if (response.statusCode == 200) {
       List<dynamic> body = jsonDecode(response.body);
-      List<User> users =
-      body.map((dynamic item) => User.fromJson(item)).toList();
-      return users;
+      return body.map((dynamic item) => User.fromJson(item)).toList();
     } else {
       throw Exception('Failed to load staff list: ${response.body}');
     }
   }
 
+  // Updated to support generic 'create' with roles
   Future<Map<String, dynamic>> createStaff({
     required String username,
     required String password,
+    String role = 'staff',
   }) async {
     final headers = await _getAuthHeaders();
     final response = await http.post(
-      Uri.parse('$_baseUrl/users/staff'),
+      Uri.parse('$_baseUrl/users/create'), // Changed from /staff to /create
       headers: headers,
       body: jsonEncode({
         'username': username,
         'password': password,
+        'role': role,
       }),
     );
     if (response.statusCode == 201) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Failed to create staff: ${response.body}');
+      throw Exception('Failed to create user: ${response.body}');
     }
   }
 
@@ -357,12 +442,11 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Failed to delete staff: ${response.body}');
+      throw Exception('Failed to delete user: ${response.body}');
     }
   }
 
-  // --- RECYCLE BIN FUNCTIONS (Soft Delete/Restore) ---
-
+  // --- RECYCLE BIN ---
   Future<RecycleBinData> getRecycleBinData() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -432,8 +516,7 @@ class ApiService {
     }
   }
 
-  // --- NEW: PERMANENT DELETE FUNCTIONS ---
-
+  // --- PERMANENT DELETE ---
   Future<Map<String, dynamic>> permanentDeleteCustomer(int customerId) async {
     final headers = await _getAuthHeaders();
     final response = await http.delete(
@@ -465,18 +548,29 @@ class ApiService {
   // --- FINANCIAL REPORT ---
   Future<FinancialReport> getFinancialReport(String startDate, String endDate) async {
     final headers = await _getAuthHeaders();
-    // Append query parameters
     final uri = Uri.parse('$_baseUrl/reports/financial-summary').replace(queryParameters: {
       'startDate': startDate,
       'endDate': endDate,
     });
-
     final response = await http.get(uri, headers: headers);
-
     if (response.statusCode == 200) {
       return FinancialReport.fromJson(jsonDecode(response.body));
     } else {
       throw Exception('Failed to load financial report: ${response.body}');
+    }
+  }
+
+  // --- DayBook ---
+  Future<Map<String, dynamic>> getDayBook(String date) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.get(
+      Uri.parse('$_baseUrl/reports/day-book?date=$date'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load Day Book: ${response.body}');
     }
   }
 }

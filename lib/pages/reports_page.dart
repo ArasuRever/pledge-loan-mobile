@@ -14,51 +14,34 @@ class ReportsPage extends StatefulWidget {
 class _ReportsPageState extends State<ReportsPage> {
   final ApiService _apiService = ApiService();
 
-  DateTime _startDate = DateTime.now().subtract(const Duration(days: 30));
-  DateTime _endDate = DateTime.now();
-
+  // State
+  DateTimeRange? _selectedDateRange;
   FinancialReport? _reportData;
   bool _isLoading = false;
-  String? _errorMessage;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    // Set defaults to the first and last day of the current month
+    // Default to current month
     final now = DateTime.now();
-    _startDate = DateTime(now.year, now.month, 1);
-    _endDate = DateTime(now.year, now.month + 1, 0);
+    final startOfMonth = DateTime(now.year, now.month, 1);
+    final endOfMonth = DateTime(now.year, now.month + 1, 0);
+    _selectedDateRange = DateTimeRange(start: startOfMonth, end: endOfMonth);
     _fetchReport();
   }
 
-  Future<void> _selectDate(BuildContext context, bool isStart) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: isStart ? _startDate : _endDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-    );
-    if (picked != null) {
-      setState(() {
-        if (isStart) {
-          _startDate = picked;
-        } else {
-          _endDate = picked;
-        }
-      });
-    }
-  }
-
   Future<void> _fetchReport() async {
+    if (_selectedDateRange == null) return;
+
     setState(() {
       _isLoading = true;
-      _errorMessage = null;
+      _error = null;
     });
 
     try {
-      // Format dates as YYYY-MM-DD for the API
-      final startStr = DateFormat('yyyy-MM-dd').format(_startDate);
-      final endStr = DateFormat('yyyy-MM-dd').format(_endDate);
+      final startStr = DateFormat('yyyy-MM-dd').format(_selectedDateRange!.start);
+      final endStr = DateFormat('yyyy-MM-dd').format(_selectedDateRange!.end);
 
       final data = await _apiService.getFinancialReport(startStr, endStr);
       setState(() {
@@ -66,7 +49,7 @@ class _ReportsPageState extends State<ReportsPage> {
       });
     } catch (e) {
       setState(() {
-        _errorMessage = e.toString();
+        _error = e.toString();
       });
     } finally {
       setState(() {
@@ -75,165 +58,254 @@ class _ReportsPageState extends State<ReportsPage> {
     }
   }
 
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2101),
+      initialDateRange: _selectedDateRange,
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDateRange = picked;
+      });
+      _fetchReport();
+    }
+  }
+
+  // Quick Filters
+  void _setMonth(int offset) {
+    final now = DateTime.now();
+    // Offset 0 = This Month, -1 = Last Month
+    final targetMonth = DateTime(now.year, now.month + offset, 1);
+    final endTarget = DateTime(targetMonth.year, targetMonth.month + 1, 0);
+    setState(() {
+      _selectedDateRange = DateTimeRange(start: targetMonth, end: endTarget);
+    });
+    _fetchReport();
+  }
+
   String _formatCurrency(double amount) {
-    return '₹${amount.toStringAsFixed(2)}';
+    return '₹${amount.toStringAsFixed(0)}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final startFmt = _selectedDateRange != null ? DateFormat('dd MMM').format(_selectedDateRange!.start) : '-';
+    final endFmt = _selectedDateRange != null ? DateFormat('dd MMM yyyy').format(_selectedDateRange!.end) : '-';
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Financial Reports')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            // --- Date Filter Card ---
-            Card(
-              elevation: 2,
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
+      backgroundColor: const Color(0xFFF5F7FA),
+      appBar: AppBar(
+        title: const Text('Financial Summary'),
+        elevation: 0,
+      ),
+      body: Column(
+        children: [
+          // --- FILTERS ---
+          Container(
+            padding: const EdgeInsets.all(16),
+            color: Colors.white,
+            child: Column(
+              children: [
+                // Quick Tabs
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _selectDate(context, true),
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Start Date',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.all(10),
-                              ),
-                              child: Text(DateFormat('dd-MMM-yyyy').format(_startDate)),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _selectDate(context, false),
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'End Date',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.all(10),
-                              ),
-                              child: Text(DateFormat('dd-MMM-yyyy').format(_endDate)),
-                            ),
-                          ),
-                        ),
-                      ],
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _setMonth(-1),
+                        child: const Text("Last Month"),
+                      ),
                     ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: _isLoading ? null : _fetchReport,
-                        child: _isLoading
-                            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Text('Generate Report'),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _setMonth(0),
+                        style: OutlinedButton.styleFrom(
+                          backgroundColor: Colors.indigo.withOpacity(0.1),
+                          side: const BorderSide(color: Colors.indigo),
+                        ),
+                        child: const Text("This Month"),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // --- Error Message ---
-            if (_errorMessage != null)
-              Card(color: Colors.red[50], child: Padding(padding: const EdgeInsets.all(16.0), child: Text(_errorMessage!, style: TextStyle(color: Colors.red[900])))),
-
-            // --- Report Data ---
-            if (_reportData != null && !_isLoading)
-              Expanded(
-                child: ListView(
-                  children: [
-                    // Net Profit Card
-                    Card(
-                      color: Colors.green[50],
-                      shape: RoundedRectangleBorder(side: BorderSide(color: Colors.green.shade200), borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
+                const SizedBox(height: 12),
+                // Custom Picker
+                InkWell(
+                  onTap: _pickDateRange,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
                           children: [
-                            const Text('NET PROFIT', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green)),
-                            const SizedBox(height: 8),
-                            Text(_formatCurrency(_reportData!.netProfit), style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green[900])),
-                            const SizedBox(height: 8),
-                            Text('(Interest - Discounts)', style: TextStyle(color: Colors.green[700], fontSize: 12)),
+                            const Icon(Icons.date_range, size: 20, color: Colors.indigo),
+                            const SizedBox(width: 8),
+                            Text("$startFmt - $endFmt", style: const TextStyle(fontWeight: FontWeight.bold)),
                           ],
                         ),
+                        const Icon(Icons.edit, size: 16, color: Colors.grey),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // --- CONTENT ---
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? Center(child: Text(_error!, style: const TextStyle(color: Colors.red)))
+                : _reportData == null
+                ? const Center(child: Text("Select a date range"))
+                : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // PROFIT CARD
+                _buildSummaryCard(
+                  title: "NET PROFIT",
+                  value: _reportData!.netProfit,
+                  color: Colors.indigo,
+                  icon: Icons.auto_graph,
+                  isHighlighted: true,
+                ),
+                const SizedBox(height: 16),
+
+                // BREAKDOWN
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildSummaryCard(
+                        title: "Interest Collected",
+                        value: _reportData!.totalInterest,
+                        color: Colors.green,
+                        icon: Icons.savings,
                       ),
                     ),
-                    const SizedBox(height: 16),
-
-                    // Inflow Card
-                    _buildDetailCard(
-                      title: 'Collections (Inflow)',
-                      color: Colors.blue,
-                      rows: [
-                        _buildRow('Interest Collected', _reportData!.totalInterest, isPositive: true),
-                        _buildRow('Principal Repaid', _reportData!.totalPrincipalRepaid, isPositive: true),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Outflow Card
-                    _buildDetailCard(
-                      title: 'Outflow & Adjustments',
-                      color: Colors.orange,
-                      rows: [
-                        _buildRow('New Loans / Top-ups', _reportData!.totalDisbursed, isPositive: false),
-                        _buildRow('Discounts Given', _reportData!.totalDiscount, isPositive: false),
-                      ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildSummaryCard(
+                        title: "Discounts Given",
+                        value: _reportData!.totalDiscount,
+                        color: Colors.orange,
+                        icon: Icons.local_offer,
+                      ),
                     ),
                   ],
                 ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildSummaryCard(
+                        title: "Principal Repaid",
+                        value: _reportData!.totalPrincipalRepaid,
+                        color: Colors.blue,
+                        icon: Icons.arrow_circle_down,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildSummaryCard(
+                        title: "Total Disbursed",
+                        value: _reportData!.totalDisbursed,
+                        color: Colors.red,
+                        icon: Icons.arrow_circle_up,
+                        // --- NEW: Display the count here ---
+                        subtitle: "${_reportData!.loansCreatedCount} New Loans",
+                      ),
+                    ),
+                  ],
+                ),
 
-  Widget _buildDetailCard({required String title, required MaterialColor color, required List<Widget> rows}) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(side: BorderSide(color: color.shade200), borderRadius: BorderRadius.circular(8)),
-      child: Column(
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: color.shade100, borderRadius: const BorderRadius.vertical(top: Radius.circular(8))),
-            child: Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: color.shade900)),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(children: rows),
+                const SizedBox(height: 24),
+                const Text(
+                  "* Net Profit = Interest Collected - Discounts Given.\nPrincipal movement does not affect profit.",
+                  style: TextStyle(color: Colors.grey, fontSize: 12, fontStyle: FontStyle.italic),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRow(String label, double amount, {required bool isPositive}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildSummaryCard({
+    required String title,
+    required double value,
+    required Color color,
+    required IconData icon,
+    String? subtitle, // --- NEW PARAMETER ---
+    bool isHighlighted = false,
+  }) {
+    return Container(
+      padding: EdgeInsets.all(isHighlighted ? 24 : 16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: isHighlighted ? Border.all(color: color.withOpacity(0.3), width: 2) : null,
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 15)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(icon, color: color, size: isHighlighted ? 32 : 24),
+              if (isHighlighted)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+                  child: Text("PROFIT", style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 10)),
+                )
+            ],
+          ),
+          SizedBox(height: isHighlighted ? 16 : 12),
           Text(
-            '${isPositive ? '+' : '-'} ${_formatCurrency(amount)}',
+            title.toUpperCase(),
             style: TextStyle(
-              fontSize: 16,
+              color: Colors.grey[600],
+              fontSize: isHighlighted ? 14 : 12,
               fontWeight: FontWeight.bold,
-              color: isPositive ? Colors.green[700] : Colors.red[700],
             ),
           ),
+          const SizedBox(height: 4),
+          Text(
+            _formatCurrency(value),
+            style: TextStyle(
+              color: Colors.black87,
+              fontSize: isHighlighted ? 32 : 20,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+
+          // --- NEW: Display Subtitle if present ---
+          if (subtitle != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4.0),
+              child: Text(
+                subtitle,
+                style: TextStyle(color: Colors.grey[500], fontSize: 12, fontStyle: FontStyle.italic),
+              ),
+            ),
         ],
       ),
     );

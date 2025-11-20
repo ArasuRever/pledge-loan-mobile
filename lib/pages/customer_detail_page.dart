@@ -7,6 +7,7 @@ import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/pages/loan_detail_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pledge_loan_mobile/pages/loan_form_page.dart';
+import 'package:pledge_loan_mobile/pages/edit_customer_page.dart'; // --- NEW IMPORT
 
 class CustomerDetailPage extends StatefulWidget {
   final int customerId;
@@ -83,16 +84,39 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     }
   }
 
+  // --- FIXED: Passes correct arguments to LoanFormPage ---
   void _navigateToNewPledge(Customer customer) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => LoanFormPage(customer: customer),
+        builder: (context) => LoanFormPage(
+          customerId: customer.id,       // Passing ID separately
+          customerName: customer.name,   // Passing Name separately
+        ),
       ),
     ).then((_) {
       // Refresh the page when we come back (to see the new loan)
       setState(() {
         _pageDataFuture = _loadPageData();
       });
+    });
+  }
+
+  // --- NEW: Navigate to Edit Customer ---
+  void _navigateToEditCustomer(Customer customer) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => EditCustomerPage(customer: customer),
+      ),
+    ).then((result) {
+      // If result is true, it means the customer was updated
+      if (result == true) {
+        setState(() {
+          _pageDataFuture = _loadPageData();
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Customer profile updated!'), backgroundColor: Colors.green),
+        );
+      }
     });
   }
 
@@ -139,6 +163,22 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       appBar: AppBar(
         title: Text(widget.customerName),
         actions: [
+          // --- NEW: Edit Button ---
+          FutureBuilder<CustomerPageData>(
+            future: _pageDataFuture,
+            builder: (context, snapshot) {
+              if (snapshot.hasData) {
+                return IconButton(
+                  icon: const Icon(Icons.edit),
+                  tooltip: 'Edit Profile',
+                  onPressed: () => _navigateToEditCustomer(snapshot.data!.customer),
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+
+          // Existing Delete Button (Admin Only)
           if (_userRole == 'admin')
             IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -184,11 +224,10 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
               .toList();
           final closedLoans = allLoans
               .where(
-                  (loan) => loan.status == 'paid' || loan.status == 'forfeited')
+                  (loan) => loan.status == 'paid' || loan.status == 'forfeited' || loan.status == 'renewed')
               .toList();
 
           return ListView(
-            // --- FIXED: Removed duplicate padding ---
             padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 80),
             children: [
               _buildCustomerDetailsCard(context, customer),
@@ -211,36 +250,68 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              customer.name,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.phone, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(customer.phoneNumber,
-                    style: Theme.of(context).textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 8),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
+                CircleAvatar(
+                  radius: 30,
+                  backgroundColor: Colors.indigo.shade100,
+                  backgroundImage: customer.imageUrl != null ? NetworkImage(customer.imageUrl!) : null,
+                  child: customer.imageUrl == null
+                      ? Text(customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?', style: const TextStyle(fontSize: 24, color: Colors.indigo))
+                      : null,
+                ),
+                const SizedBox(width: 16),
                 Expanded(
-                  child: Text(
-                    customer.address ?? 'No address provided',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontStyle: customer.address == null
-                            ? FontStyle.italic
-                            : FontStyle.normal),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(customer.name, style: Theme.of(context).textTheme.headlineSmall),
+                      const SizedBox(height: 4),
+                      Text(customer.phoneNumber, style: Theme.of(context).textTheme.titleMedium),
+                    ],
                   ),
                 ),
               ],
             ),
+            const Divider(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.location_on, size: 18, color: Colors.grey),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    customer.address ?? 'No address provided',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontStyle: customer.address == null ? FontStyle.italic : FontStyle.normal),
+                  ),
+                ),
+              ],
+            ),
+            // --- SHOW KYC DETAILS IF AVAILABLE ---
+            if (customer.idProofNumber != null || customer.nomineeName != null) ...[
+              const SizedBox(height: 12),
+              if (customer.idProofNumber != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4.0),
+                  child: Row(children: [
+                    const Icon(Icons.badge_outlined, size: 18, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Text("${customer.idProofType ?? 'ID'}: ${customer.idProofNumber}", style: const TextStyle(fontSize: 14)),
+                  ]),
+                ),
+              if (customer.nomineeName != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4.0),
+                  child: Row(children: [
+                    const Icon(Icons.family_restroom, size: 18, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Text("Nominee: ${customer.nomineeName} (${customer.nomineeRelation ?? 'Relation'})", style: const TextStyle(fontSize: 14)),
+                  ]),
+                ),
+            ]
           ],
         ),
       ),

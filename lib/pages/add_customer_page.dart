@@ -1,66 +1,81 @@
 // lib/pages/add_customer_page.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
 
 class AddCustomerPage extends StatefulWidget {
   const AddCustomerPage({super.key});
 
   @override
-  State<AddCustomerPage> createState() => _AddCustomerPageState();
+  _AddCustomerPageState createState() => _AddCustomerPageState();
 }
 
 class _AddCustomerPageState extends State<AddCustomerPage> {
   final _formKey = GlobalKey<FormState>();
-  final _apiService = ApiService();
-
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
 
+  // --- NEW KYC CONTROLLERS ---
+  final _idTypeController = TextEditingController(text: 'Aadhaar'); // Default
+  final _idNumberController = TextEditingController();
+  final _nomineeNameController = TextEditingController();
+  final _nomineeRelationController = TextEditingController();
+
+  File? _imageFile;
   bool _isLoading = false;
-  String? _errorMessage;
+  final ApiService _apiService = ApiService();
+  final ImagePicker _picker = ImagePicker();
 
-  Future<void> _submitCustomer() async {
-    if (!_formKey.currentState!.validate()) {
-      return; // Form is invalid
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      await _apiService.addCustomer(
-        name: _nameController.text,
-        phoneNumber: _phoneController.text,
-        address: _addressController.text,
-      );
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Customer added successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        // Pop the page and send 'true' back to signal a refresh
-        Navigator.of(context).pop(true);
-      }
-    } catch (e) {
+  Future<void> _pickImage(ImageSource source) async {
+    final pickedFile = await _picker.pickImage(source: source);
+    if (pickedFile != null) {
       setState(() {
-        _errorMessage = e.toString();
-        _isLoading = false;
+        _imageFile = File(pickedFile.path);
       });
     }
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _addressController.dispose();
-    super.dispose();
+  void _submitForm() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true;
+      });
+
+      try {
+        await _apiService.addCustomer(
+          name: _nameController.text,
+          phoneNumber: _phoneController.text,
+          address: _addressController.text,
+          // --- PASS NEW FIELDS ---
+          idProofType: _idTypeController.text,
+          idProofNumber: _idNumberController.text,
+          nomineeName: _nomineeNameController.text,
+          nomineeRelation: _nomineeRelationController.text,
+          photoFile: _imageFile,
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Customer added successfully!')),
+          );
+          Navigator.pop(context, true); // Return true to refresh list
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: ${e.toString()}')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    }
   }
 
   @override
@@ -69,72 +84,179 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
       appBar: AppBar(
         title: const Text('Add New Customer'),
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.all(16.0),
-          children: [
-            TextFormField(
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Full Name',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.person),
-              ),
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter a name';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _phoneController,
-              decoration: const InputDecoration(
-                labelText: 'Phone Number',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.phone),
-              ),
-              keyboardType: TextInputType.phone,
-              validator: (value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter a phone number';
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _addressController,
-              decoration: const InputDecoration(
-                labelText: 'Address',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.location_on),
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 24),
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: Text(
-                  _errorMessage!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16.0),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // --- Photo Upload Section ---
+              Center(
+                child: GestureDetector(
+                  onTap: () {
+                    showModalBottomSheet(
+                      context: context,
+                      builder: (context) => SafeArea(
+                        child: Wrap(
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.photo_library),
+                              title: const Text('Gallery'),
+                              onTap: () {
+                                _pickImage(ImageSource.gallery);
+                                Navigator.of(context).pop();
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.camera_alt),
+                              title: const Text('Camera'),
+                              onTap: () {
+                                _pickImage(ImageSource.camera);
+                                Navigator.of(context).pop();
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                  child: CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Colors.grey[200],
+                    backgroundImage:
+                    _imageFile != null ? FileImage(_imageFile!) : null,
+                    child: _imageFile == null
+                        ? const Icon(Icons.add_a_photo,
+                        size: 40, color: Colors.grey)
+                        : null,
+                  ),
                 ),
               ),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _submitCustomer,
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
+              const SizedBox(height: 20),
+
+              // --- BASIC DETAILS ---
+              const Text('Basic Information', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Full Name',
+                  prefixIcon: Icon(Icons.person),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a name';
+                  }
+                  return null;
+                },
               ),
-              child: _isLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('Save Customer'),
-            ),
-          ],
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _phoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Phone Number',
+                  prefixIcon: Icon(Icons.phone),
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Please enter a phone number';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _addressController,
+                decoration: const InputDecoration(
+                  labelText: 'Address',
+                  prefixIcon: Icon(Icons.home),
+                  border: OutlineInputBorder(),
+                ),
+                maxLines: 3,
+              ),
+
+              const SizedBox(height: 24),
+
+              // --- KYC SECTION ---
+              const Text('KYC & Nominee (Optional)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: DropdownButtonFormField<String>(
+                      value: _idTypeController.text,
+                      decoration: const InputDecoration(labelText: 'ID Type', border: OutlineInputBorder()),
+                      items: ['Aadhaar', 'PAN', 'Voter ID', 'License', 'Ration Card']
+                          .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                          .toList(),
+                      onChanged: (val) => setState(() => _idTypeController.text = val!),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 3,
+                    child: TextFormField(
+                      controller: _idNumberController,
+                      decoration: const InputDecoration(labelText: 'ID Number', border: OutlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: TextFormField(
+                      controller: _nomineeNameController,
+                      decoration: const InputDecoration(labelText: 'Nominee Name', border: OutlineInputBorder()),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    flex: 2,
+                    child: TextFormField(
+                      controller: _nomineeRelationController,
+                      decoration: const InputDecoration(labelText: 'Relation', border: OutlineInputBorder()),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 32),
+              SizedBox(
+                height: 50,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _submitForm,
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white),
+                  child: _isLoading
+                      ? const CircularProgressIndicator(color: Colors.white)
+                      : const Text('Save Customer', style: TextStyle(fontSize: 18)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    _idTypeController.dispose();
+    _idNumberController.dispose();
+    _nomineeNameController.dispose();
+    _nomineeRelationController.dispose();
+    super.dispose();
   }
 }

@@ -1,5 +1,8 @@
+// lib/pages/home_page.dart
 import 'package:flutter/material.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'package:pledge_loan_mobile/pages/day_book_page.dart';
+import 'package:pledge_loan_mobile/pages/reports_page.dart'; // --- NEW IMPORT
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -17,7 +20,6 @@ class HomePage extends StatelessWidget {
           return const Center(child: Text('No data found.'));
         }
 
-        // --- 1. Read all the new stats from the API ---
         final stats = snapshot.data!;
         final totalCustomers = stats['totalCustomers'] ?? 0;
         final totalLoans = stats['totalLoans'] ?? 0;
@@ -33,50 +35,51 @@ class HomePage extends StatelessWidget {
             crossAxisCount: 2,
             crossAxisSpacing: 16,
             mainAxisSpacing: 16,
-            childAspectRatio: 0.85, // Make cards a bit taller
+            childAspectRatio: 0.85,
             children: [
-              // --- 2. Customer Card (Unchanged) ---
+              // 1. Customers
               DashboardCard(
                 title: 'Total Customers',
                 icon: Icons.people,
                 color: Colors.blue,
-                // Pass a simple Text widget
-                statsContent: Text(
-                  totalCustomers.toString(),
-                  style: const TextStyle(
-                    fontSize: 32, // Larger font for single number
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
+                statsContent: Text(totalCustomers.toString(), style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
               ),
 
-              // --- 3. New "Total Loans" Card ---
+              // 2. Loans
               DashboardCard(
                 title: 'Total Loans',
                 icon: Icons.monetization_on,
                 color: Colors.green,
-                // Pass a Column with all the stats
-                statsContent: LoanStatsColumn(
-                  total: totalLoans,
-                  active: loansActive,
-                  paid: loansPaid,
-                  overdue: loansOverdue,
-                ),
+                statsContent: LoanStatsColumn(total: totalLoans, active: loansActive, paid: loansPaid, overdue: loansOverdue),
               ),
 
-              // --- 4. Total Value Card (Unchanged) ---
+              // 3. Value
               DashboardCard(
                 title: 'Total Loan Value',
                 icon: Icons.account_balance_wallet,
                 color: Colors.orange,
-                statsContent: Text(
-                  '₹${(num.tryParse(totalValue.toString()) ?? 0.0).toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontSize: 24, // Smaller font to fit
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
+                statsContent: Text('₹${(num.tryParse(totalValue.toString()) ?? 0.0).toStringAsFixed(0)}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white)),
+              ),
+
+              // 4. Day Book
+              InkWell(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const DayBookPage())),
+                child: const DashboardCard(
+                  title: 'Day Book',
+                  icon: Icons.book,
+                  color: Colors.purple,
+                  statsContent: Center(child: Text("View\nLedger", textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white))),
+                ),
+              ),
+
+              // --- 5. NEW: REPORTS CARD ---
+              InkWell(
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const ReportsPage())),
+                child: const DashboardCard(
+                  title: 'Financial Reports',
+                  icon: Icons.analytics,
+                  color: Colors.teal, // Distinct color
+                  statsContent: Center(child: Text("Profit\n& Loss", textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white))),
                 ),
               ),
             ],

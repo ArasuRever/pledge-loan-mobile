@@ -160,8 +160,10 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
         child: ListView(
           children: [
             _buildHeader('Deleted Customers (${_data!.customers.length})'),
+            // NOTE: The .map() function here correctly sends a RecycleBinCustomer object
             ..._data!.customers.map(_buildCustomerTile),
             _buildHeader('Deleted Loans (${_data!.loans.length})'),
+            // NOTE: The .map() function here correctly sends a RecycleBinLoan object
             ..._data!.loans.map(_buildLoanTile),
             if (_data!.customers.isEmpty && _data!.loans.isEmpty)
               const Padding(
@@ -188,7 +190,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     );
   }
 
-  Widget _buildCustomerTile(CustomerItem customer) {
+  // FIXED: Changed CustomerItem to RecycleBinCustomer
+  Widget _buildCustomerTile(RecycleBinCustomer customer) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
       child: ListTile(
@@ -214,7 +217,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     );
   }
 
-  Widget _buildLoanTile(LoanItem loan) {
+  // FIXED: Changed LoanItem to RecycleBinLoan
+  Widget _buildLoanTile(RecycleBinLoan loan) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
       child: ListTile(
