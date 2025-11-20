@@ -46,6 +46,35 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
     }
   }
 
+  // --- NEW: Image Source Selector ---
+  void _showImageSourceActionSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Gallery'),
+              onTap: () {
+                _pickImage(ImageSource.gallery);
+                Navigator.of(context).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Camera'),
+              onTap: () {
+                _pickImage(ImageSource.camera);
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _submitForm() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
@@ -84,14 +113,24 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
           child: Column(
             children: [
               GestureDetector(
-                onTap: () => _pickImage(ImageSource.gallery),
+                onTap: () => _showImageSourceActionSheet(context), // --- UPDATED: Call the sheet ---
                 child: CircleAvatar(
                   radius: 50,
                   backgroundColor: Colors.grey[200],
-                  backgroundImage: _imageFile != null ? FileImage(_imageFile!) : null,
-                  child: _imageFile == null ? const Icon(Icons.camera_alt, size: 40, color: Colors.grey) : null,
+                  // Show new image if selected, else show existing URL, else show icon
+                  backgroundImage: _imageFile != null
+                      ? FileImage(_imageFile!)
+                      : (widget.customer.imageUrl != null
+                      ? NetworkImage(widget.customer.imageUrl!)
+                      : null) as ImageProvider?,
+                  child: (_imageFile == null && widget.customer.imageUrl == null)
+                      ? const Icon(Icons.camera_alt, size: 40, color: Colors.grey)
+                      : null,
                 ),
               ),
+              const SizedBox(height: 10),
+              const Text("Tap photo to change", style: TextStyle(color: Colors.grey, fontSize: 12)),
+
               const SizedBox(height: 20),
               TextFormField(
                 controller: _nameController,

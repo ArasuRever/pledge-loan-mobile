@@ -11,7 +11,6 @@ import 'package:pledge_loan_mobile/widgets/renew_loan_dialog.dart';
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
 import 'package:pledge_loan_mobile/pages/customer_detail_page.dart'; // Import Customer Detail Page
 import 'dart:convert';
-import 'dart:typed_data'; // For PDF generation
 import 'package:pdf/pdf.dart'; // For PDF generation
 import 'package:pdf/widgets.dart' as pw; // For PDF generation
 import 'package:printing/printing.dart'; // For sharing/printing PDF
@@ -64,7 +63,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     }
   }
 
-  // ... (Keep existing dialog helper methods: _showAddPaymentDialog, _showSettleLoanDialog, etc.)
   void _showAddPaymentDialog() {
     showDialog(
       context: context,
@@ -337,17 +335,18 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                         onPressed: () => _showRenewLoanDialog(loan),
                       ),
 
-                    // --- Share Invoice Button (New) ---
-                    IconButton(
-                      icon: const Icon(Icons.share),
-                      tooltip: 'Share Invoice PDF',
-                      onPressed: () => _generateAndSharePdf(loan),
-                    ),
-
                     IconButton(icon: const Icon(Icons.history), tooltip: 'View History', onPressed: _navigateToHistory),
 
                     if (isActive)
-                      IconButton(icon: const Icon(Icons.edit), tooltip: 'Edit Loan Details', onPressed: () => _onMenuSelected('edit_loan', loan)),
+                      IconButton(icon: const Icon(Icons.edit), tooltip: 'Edit Loan Details', onPressed: () => _onMenuSelected('edit_loan', loan),
+                      ),
+
+                    // --- Print Button (Moved after Edit) ---
+                    IconButton(
+                      icon: const Icon(Icons.print), // Replaced share with print icon
+                      tooltip: 'Print Invoice PDF',
+                      onPressed: () => _generateAndSharePdf(loan),
+                    ),
 
                     if (_userRole == 'admin' && isClosed)
                       IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Delete Loan', color: Colors.red, onPressed: _handleDeleteLoan),
@@ -437,7 +436,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                 _buildStatusBadge(loan.status),
               ],
             ),
-            // ... (Rest of the card content remains the same as previous versions)
             const Divider(height: 32),
             _buildDetailRow('Book #', loan.bookLoanNumber ?? 'N/A'),
             _buildDetailRow('Pledge Date', _formatDateString(loan.pledgeDate)),
