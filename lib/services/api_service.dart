@@ -254,17 +254,36 @@ class ApiService {
     }
   }
 
+  //
+  // Updated to support Image Upload on Edit
   Future<Map<String, dynamic>> updateLoan({
     required int loanId,
     required Map<String, String> loanData,
+    File? imageFile, // <--- Added parameter
   }) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
+
     var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/loans/$loanId'));
     request.headers['Authorization'] = 'Bearer $token';
+
+    // Add text fields
     request.fields.addAll(loanData);
+
+    // Add file if provided
+    if (imageFile != null) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'itemPhoto', // Must match backend field name
+          imageFile.path,
+          contentType: MediaType('image', 'jpeg'),
+        ),
+      );
+    }
+
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
+
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {

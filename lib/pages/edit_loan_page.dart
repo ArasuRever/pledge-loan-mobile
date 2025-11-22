@@ -131,6 +131,7 @@ class _EditLoanPageState extends State<EditLoanPage> {
     }
   }
 
+  //
   Future<void> _submitUpdate() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() { _isLoading = true; _errorMessage = null; });
@@ -148,49 +149,20 @@ class _EditLoanPageState extends State<EditLoanPage> {
         'appraised_value': _appraisedValueController.text,
         'pledge_date': _pledgeDateController.text,
         'due_date': _dueDateController.text,
+        // If you have a logic to remove the image, include it here:
+        // 'removeItemImage': 'true',
       };
-
-      // If user wants to remove existing image but didn't select a new one (logic needs backend support)
-      // For now, we assume if _imageFile is null, we keep the old one.
-      // If you implement a "delete photo" button, you'd pass 'removeItemImage': 'true'
-
-      // Note: You might need to update ApiService.updateLoan to accept File? imageFile
-      // But since the current ApiService.updateLoan only takes Map<String, String>,
-      // we need to make sure it supports file upload if you want to send the image.
-      // Assuming your backend supports receiving 'itemPhoto' on PUT request (as multipart).
-
-      // NOTE: Since we can't modify the ApiService file in this response block,
-      // ensure your ApiService.updateLoan handles multipart requests if you send a file.
-      // If it doesn't, you will need to update that too.
-      // Based on previous context, I'll assume we need to use a method that supports files.
-
-      // IF your ApiService.updateLoan doesn't support file, we need to modify it.
-      // Checking your uploaded ApiService... it does NOT support file in updateLoan.
-      // I will create a local helper here or assume you update ApiService separately.
-      // For this example to work without modifying ApiService again, I will assume
-      // you will update ApiService.updateLoan to accept `File? imageFile` similar to createLoan.
-
-      // HOWEVER, since I am giving you the file content for this page only:
-      // I will implement the logic assuming `_apiService.updateLoan` is updated
-      // OR I will use a direct multipart request here if needed.
-      // Ideally, update `ApiService` to support image updates on loans.
-
-      // Let's assume you updated ApiService.updateLoan to take `File? imageFile`.
-      // If not, please request an update for ApiService as well.
-
-      // TEMPORARY WORKAROUND: Since I can't see updated ApiService with image support for updateLoan,
-      // I will stick to data update. If you need image update, ApiService needs change.
-
-      // Wait, I CAN provide the code assuming you will update ApiService.
-      // Let's stick to the provided file scope. I will add the UI logic.
 
       await _apiService.updateLoan(
         loanId: widget.loanDetail.id,
         loanData: loanData,
-        // imageFile: _imageFile, // Uncomment if ApiService supports it
+        imageFile: _imageFile, // <--- UNCOMMENTED AND ACTIVE
       );
 
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Loan details updated successfully!')),
+        );
         Navigator.of(context).pop(true);
       }
     } catch (e) {

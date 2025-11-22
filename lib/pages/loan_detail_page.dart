@@ -1,4 +1,3 @@
-// lib/pages/loan_detail_page.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
@@ -9,11 +8,11 @@ import 'package:pledge_loan_mobile/widgets/settle_loan_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/renew_loan_dialog.dart';
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
-import 'package:pledge_loan_mobile/pages/customer_detail_page.dart'; // Import Customer Detail Page
+import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
 import 'dart:convert';
-import 'package:pdf/pdf.dart'; // For PDF generation
-import 'package:pdf/widgets.dart' as pw; // For PDF generation
-import 'package:printing/printing.dart'; // For sharing/printing PDF
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pledge_loan_mobile/pages/loan_history_page.dart';
 
@@ -196,11 +195,10 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
               pw.Center(child: pw.Text('PLEDGE TICKET / LOAN RECEIPT', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline))),
               pw.SizedBox(height: 20),
 
-              // Info Grid (Loan & Customer)
+              // Info Grid
               pw.Row(
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
-                  // Loan Details
                   pw.Expanded(
                     child: pw.Container(
                       padding: const pw.EdgeInsets.all(10),
@@ -220,7 +218,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                     ),
                   ),
                   pw.SizedBox(width: 20),
-                  // Customer Details
                   pw.Expanded(
                     child: pw.Container(
                       padding: const pw.EdgeInsets.all(10),
@@ -241,7 +238,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
               ),
               pw.SizedBox(height: 20),
 
-              // Item Details Table
               pw.Text('PARTICULARS OF PLEDGED ARTICLES:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, decoration: pw.TextDecoration.underline)),
               pw.SizedBox(height: 5),
               pw.Table.fromTextArray(
@@ -264,24 +260,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                 child: pw.Text('Appraised Value: ${formatStat(loan.appraisedValue ?? '0')}', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
               ),
 
-              pw.SizedBox(height: 30),
-              // Declaration
-              pw.Container(
-                padding: const pw.EdgeInsets.all(10),
-                decoration: pw.BoxDecoration(border: pw.Border.all(color: PdfColors.grey)),
-                child: pw.Column(
-                  crossAxisAlignment: pw.CrossAxisAlignment.start,
-                  children: [
-                    pw.Text('Terms & Declaration:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-                    pw.Bullet(text: 'I acknowledge receipt of the principal amount mentioned above.'),
-                    pw.Bullet(text: 'I am the absolute owner of these articles and they are free from any encumbrance.'),
-                    pw.Bullet(text: 'If interest is not paid for more than 12 months, the lender has the right to auction the articles.'),
-                  ],
-                ),
-              ),
-
               pw.Spacer(),
-              // Signatures
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
@@ -323,11 +302,10 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                 if (!snapshot.hasData) return const SizedBox.shrink();
                 final loan = snapshot.data!;
                 final isActive = loan.status == 'active' || loan.status == 'overdue';
-                final isClosed = loan.status == 'paid' || loan.status == 'forfeited' || loan.status == 'renewed';
+                // FIX: Removed isDeletable logic to allow Admin to delete any loan
 
                 return Row(
                   children: [
-                    // --- Renew Button (Top) ---
                     if (isActive)
                       IconButton(
                         icon: const Icon(Icons.autorenew),
@@ -341,14 +319,14 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                       IconButton(icon: const Icon(Icons.edit), tooltip: 'Edit Loan Details', onPressed: () => _onMenuSelected('edit_loan', loan),
                       ),
 
-                    // --- Print Button (Moved after Edit) ---
                     IconButton(
-                      icon: const Icon(Icons.print), // Replaced share with print icon
+                      icon: const Icon(Icons.print),
                       tooltip: 'Print Invoice PDF',
                       onPressed: () => _generateAndSharePdf(loan),
                     ),
 
-                    if (_userRole == 'admin' && isClosed)
+                    // FIX: Always show delete for Admin
+                    if (_userRole == 'admin')
                       IconButton(icon: const Icon(Icons.delete_outline), tooltip: 'Delete Loan', color: Colors.red, onPressed: _handleDeleteLoan),
                   ],
                 );
@@ -377,6 +355,9 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
                     _buildItemDetailsCard(loan),
                     const SizedBox(height: 16),
                     _buildTransactionsList(loan.transactions),
+                    const SizedBox(height: 16),
+                    // --- NEW: Settlement Summary ---
+                    _buildSettlementSummary(loan),
                     const SizedBox(height: 100),
                   ],
                 ),
@@ -389,10 +370,86 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- UPDATED: Clickable Customer Card ---
+  // --- NEW: Settlement Summary Widget ---
+  Widget _buildSettlementSummary(LoanDetail loan) {
+    if (loan.status != 'paid') return const SizedBox.shrink();
+
+    final allTxs = loan.transactions;
+    // Transaction groups
+    final payTxs = allTxs.where((t) => ['interest', 'principal', 'settlement'].contains(t.paymentType));
+    final discountTxs = allTxs.where((t) => t.paymentType == 'discount');
+
+    // Use Total Principal from Loan Details (Correct value including initial)
+    final totalPrincipal = double.tryParse(loan.principalAmount) ?? 0.0;
+
+    final totalCashPaid = payTxs.fold(0.0, (sum, t) => sum + double.parse(t.amountPaid));
+    final totalDiscount = discountTxs.fold(0.0, (sum, t) => sum + double.parse(t.amountPaid));
+
+    // Derived Interest
+    final totalInterestGenerated = (totalCashPaid + totalDiscount) - totalPrincipal;
+    final totalPayable = totalPrincipal + totalInterestGenerated;
+
+    return Card(
+      elevation: 2,
+      color: Colors.green[50],
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green),
+                const SizedBox(width: 8),
+                Text('Settlement Summary', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green[800])),
+              ],
+            ),
+            const Divider(),
+            _buildSummaryRow('Total Principal Disbursed', totalPrincipal),
+            _buildSummaryRow('+ Interest & Charges', totalInterestGenerated),
+            const Divider(),
+            _buildSummaryRow('Total Payable', totalPayable, isBold: true),
+            _buildSummaryRow('- Total Cash Paid', totalCashPaid, color: Colors.green),
+            if (totalDiscount > 0)
+              _buildSummaryRow('- Discount / Waiver', totalDiscount, color: Colors.red),
+            const Divider(),
+            _buildSummaryRow('Outstanding Balance', 0.0, isBold: true, color: Colors.black),
+
+            if (loan.closedDate != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 10.0),
+                child: Center(child: Text('Settled on ${_formatDateString(loan.closedDate)}', style: TextStyle(color: Colors.grey[600], fontSize: 12, fontStyle: FontStyle.italic))),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSummaryRow(String label, double amount, {bool isBold = false, Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: 14)),
+          Text(
+              '₹${amount.toStringAsFixed(0)}',
+              style: TextStyle(fontWeight: isBold ? FontWeight.bold : FontWeight.normal, fontSize: 14, color: color)
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLoanSummaryCard(LoanDetail loan) {
     final stats = loan.calculated;
     final isClosed = loan.status != 'active' && loan.status != 'overdue';
+
+    // FIX: Filter transactions for Total Paid to EXCLUDE discounts
+    final paymentsReceived = loan.transactions.where((tx) => tx.paymentType != 'disbursement' && tx.paymentType != 'discount');
+    final totalPaidReal = paymentsReceived.fold(0.0, (sum, tx) => sum + double.parse(tx.amountPaid));
 
     return Card(
       elevation: 0,
@@ -406,29 +463,16 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Expanded(
-                  child: InkWell( // Make clickable
+                  child: InkWell(
                     onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => CustomerDetailPage(
-                            customerId: loan.customerId,
-                            customerName: loan.customerName,
-                          ),
-                        ),
-                      );
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => CustomerDetailPage(customerId: loan.customerId, customerName: loan.customerName)));
                     },
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                            loan.customerName,
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.indigo, decoration: TextDecoration.underline) // Visual cue
-                        ),
+                        Text(loan.customerName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.indigo, decoration: TextDecoration.underline)),
                         const SizedBox(height: 4),
                         Text(loan.phoneNumber ?? 'No phone', style: TextStyle(color: Colors.grey[600], fontSize: 14)),
-                        if (loan.address != null && loan.address!.isNotEmpty)
-                          Padding(padding: const EdgeInsets.only(top: 4.0), child: Text(loan.address!, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Colors.grey[500]))),
                       ],
                     ),
                   ),
@@ -453,7 +497,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
             if (isClosed) ...[
               const SizedBox(height: 10),
               const Divider(),
-              _buildDetailRow('Total Paid', formatStat(stats.totalPaid), valueColor: Colors.green, isTotal: true),
+              // Use recalculated real total paid
+              _buildDetailRow('Total Paid', '₹${totalPaidReal.toStringAsFixed(0)}', valueColor: Colors.green, isTotal: true),
             ] else ...[
               _buildDetailRow('Principal Paid', formatStat(stats.principalPaid), valueColor: Colors.green),
               _buildDetailRow('Interest Paid', formatStat(stats.interestPaid), valueColor: Colors.green),
@@ -473,15 +518,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     Color color = _getStatusColor(status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Text(
-        status.toUpperCase(),
-        style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
-      ),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withOpacity(0.5))),
+      child: Text(status.toUpperCase(), style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12)),
     );
   }
 
@@ -525,13 +563,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                const Icon(Icons.inventory_2_outlined, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text('Pledged Item', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              ],
-            ),
+            Row(children: [const Icon(Icons.inventory_2_outlined, color: Colors.grey), const SizedBox(width: 8), Text('Pledged Item', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold))]),
             const Divider(height: 24),
             if (loan.itemImageDataUrl != null)
               Padding(padding: const EdgeInsets.only(bottom: 16.0), child: Center(child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.memory(base64Decode(loan.itemImageDataUrl!.split(',')[1]), height: 180, width: double.infinity, fit: BoxFit.cover)))),
@@ -554,10 +586,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-          child: Text("Recent Activity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        ),
+        const Padding(padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0), child: Text("Recent Activity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
         ...transactions.map((tx) {
           String subtitle = _formatDateString(tx.paymentDate);
           if (tx.changedByUsername != null) subtitle += ' • ${tx.changedByUsername}';
@@ -577,72 +606,23 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     );
   }
 
-  // --- Classic Button Style for Bottom Actions ---
   Widget _buildActionButtons(LoanDetail loan) {
-    if (loan.status != 'active' && loan.status != 'overdue') {
-      return const SizedBox.shrink();
-    }
-
+    if (loan.status != 'active' && loan.status != 'overdue') return const SizedBox.shrink();
     return Container(
       padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, -2)),
-        ],
-      ),
+      decoration: BoxDecoration(color: Theme.of(context).scaffoldBackgroundColor, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, -2))]),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Row 1: Add Principal & Add Payment
           Row(
             children: [
-              Expanded(
-                  child: ElevatedButton(
-                      onPressed: _showAddPrincipalDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text(
-                          'Add Principal',
-                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
-                      )
-                  )
-              ),
+              Expanded(child: ElevatedButton(onPressed: _showAddPrincipalDialog, style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, padding: const EdgeInsets.symmetric(vertical: 14)), child: const Text('Add Principal', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)))),
               const SizedBox(width: 10),
-              Expanded(
-                  child: ElevatedButton(
-                      onPressed: _showAddPaymentDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text(
-                          'Add Payment',
-                          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
-                      )
-                  )
-              ),
+              Expanded(child: ElevatedButton(onPressed: _showAddPaymentDialog, style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, padding: const EdgeInsets.symmetric(vertical: 14)), child: const Text('Add Payment', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)))),
             ],
           ),
           const SizedBox(height: 10),
-
-          // Row 2: Settle & Close (Full Width)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-                onPressed: _showSettleLoanDialog,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: const Text(
-                    'Settle & Close Loan',
-                    style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)
-                )
-            ),
-          ),
+          SizedBox(width: double.infinity, child: ElevatedButton(onPressed: _showSettleLoanDialog, style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(vertical: 14)), child: const Text('Settle & Close Loan', style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)))),
         ],
       ),
     );
