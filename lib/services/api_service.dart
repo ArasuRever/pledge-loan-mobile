@@ -15,6 +15,7 @@ import 'package:pledge_loan_mobile/models/user_model.dart';
 import 'package:pledge_loan_mobile/models/recycle_bin_model.dart';
 import 'package:pledge_loan_mobile/models/loan_history_model.dart';
 import 'package:pledge_loan_mobile/models/financial_report_model.dart';
+import 'package:pledge_loan_mobile/models/business_settings_model.dart';
 
 class ApiService {
   // Ensure this URL matches your live server
@@ -98,17 +99,16 @@ class ApiService {
     }
   }
 
-  // --- MODIFIED: Added KYC fields ---
+  // --- CUSTOMER CREATION (Hardened) ---
   Future<Map<String, dynamic>> addCustomer({
     required String name,
     required String phoneNumber,
     required String address,
-    // New Optional Fields
     String? idProofType,
     String? idProofNumber,
     String? nomineeName,
     String? nomineeRelation,
-    File? photoFile, // Support for photo upload
+    File? photoFile,
   }) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
@@ -116,34 +116,43 @@ class ApiService {
     var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/customers'));
     request.headers['Authorization'] = 'Bearer $token';
 
-    // Core Fields
+    // Core Fields - Ensure they are Strings
     request.fields['name'] = name;
     request.fields['phone_number'] = phoneNumber;
     request.fields['address'] = address;
 
-    // New Fields (Send only if provided)
-    if (idProofType != null) request.fields['id_proof_type'] = idProofType;
-    if (idProofNumber != null) request.fields['id_proof_number'] = idProofNumber;
-    if (nomineeName != null) request.fields['nominee_name'] = nomineeName;
-    if (nomineeRelation != null) request.fields['nominee_relation'] = nomineeRelation;
+    // Optional Fields - Only add if NOT null and NOT empty
+    if (idProofType != null && idProofType.isNotEmpty) request.fields['id_proof_type'] = idProofType;
+    if (idProofNumber != null && idProofNumber.isNotEmpty) request.fields['id_proof_number'] = idProofNumber;
+    if (nomineeName != null && nomineeName.isNotEmpty) request.fields['nominee_name'] = nomineeName;
+    if (nomineeRelation != null && nomineeRelation.isNotEmpty) request.fields['nominee_relation'] = nomineeRelation;
 
-    if (photoFile != null) {
-      request.files.add(
-        await http.MultipartFile.fromPath(
-          'photo',
-          photoFile.path,
-          contentType: MediaType('image', 'jpeg'),
-        ),
-      );
+    // Photo Upload
+    if (photoFile != null && await photoFile.exists()) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'photo',
+        photoFile.path,
+        // Let http package auto-detect content type to be safe
+      ));
     }
 
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+    try {
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
 
-    if (response.statusCode == 201) {
-      return jsonDecode(response.body);
-    } else {
-      throw Exception('Failed to add customer: ${response.body}');
+      if (response.statusCode == 201) {
+        return jsonDecode(response.body);
+      } else {
+        // Parse backend error message
+        String msg = 'Failed to add customer';
+        try {
+          final err = jsonDecode(response.body);
+          if (err['error'] != null) msg = err['error'];
+        } catch (_) { msg = response.body; }
+        throw Exception('$msg (Status: ${response.statusCode})');
+      }
+    } catch (e) {
+      throw Exception('Connection Error: $e');
     }
   }
 
@@ -317,6 +326,7 @@ class ApiService {
   Future<Map<String, dynamic>> settleLoan({
     required int loanId,
     String? discountAmount,
+    String? settlementAmount, // <--- Added Parameter
   }) async {
     final headers = await _getAuthHeaders();
     final response = await http.post(
@@ -324,7 +334,7 @@ class ApiService {
       headers: headers,
       body: jsonEncode({
         'discountAmount': discountAmount ?? '0',
-        'settlementAmount': '0',
+        'settlementAmount': settlementAmount ?? '0', // <--- Pass to Backend
       }),
     );
     if (response.statusCode == 200) {
@@ -590,6 +600,58 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to load Day Book: ${response.body}');
+    }
+  }
+
+  Future<BusinessSettings> getBusinessSettings() async {
+    // Note: We don't use _getAuthHeaders because this might be called before login
+    final response = await http.get(Uri.parse('$_baseUrl/settings'));
+
+    if (response.statusCode == 200) {
+      return BusinessSettings.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Failed to load settings');
+    }
+  }
+
+  // 2. Update Settings (Admin Only)
+  Future<BusinessSettings> updateBusinessSettings({
+    required String businessName,
+    required String address,
+    required String phoneNumber, // Combined string of up to 3 numbers
+    required String licenseNumber,
+    File? logoFile,
+    String? existingLogoUrl,
+  }) async {
+    final token = await _getToken();
+    if (token == null) throw Exception('Not authenticated');
+
+    var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/settings'));
+    request.headers['Authorization'] = 'Bearer $token';
+
+    request.fields['business_name'] = businessName;
+    request.fields['address'] = address;
+    request.fields['phone_number'] = phoneNumber;
+    request.fields['license_number'] = licenseNumber;
+    if (existingLogoUrl != null) {
+      request.fields['existingLogoUrl'] = existingLogoUrl;
+    }
+
+    if (logoFile != null) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'logo', // Matches backend field name
+        logoFile.path,
+        contentType: MediaType('image', 'jpeg'), // Or png, detected auto usually
+      ));
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      return BusinessSettings.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Failed to update settings: ${response.body}');
     }
   }
 }

@@ -1,5 +1,6 @@
 // lib/pages/customer_detail_page.dart
 import 'package:flutter/material.dart';
+import 'dart:convert'; // Needed for base64Decode
 import 'package:pledge_loan_mobile/models/customer_loan_model.dart';
 import 'package:pledge_loan_mobile/models/customer_model.dart';
 import 'package:pledge_loan_mobile/models/customer_page_data.dart';
@@ -7,7 +8,7 @@ import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/pages/loan_detail_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pledge_loan_mobile/pages/loan_form_page.dart';
-import 'package:pledge_loan_mobile/pages/edit_customer_page.dart'; // --- NEW IMPORT
+import 'package:pledge_loan_mobile/pages/edit_customer_page.dart';
 
 class CustomerDetailPage extends StatefulWidget {
   final int customerId;
@@ -84,31 +85,27 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     }
   }
 
-  // --- FIXED: Passes correct arguments to LoanFormPage ---
   void _navigateToNewPledge(Customer customer) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => LoanFormPage(
-          customerId: customer.id,       // Passing ID separately
-          customerName: customer.name,   // Passing Name separately
+          customerId: customer.id,
+          customerName: customer.name,
         ),
       ),
     ).then((_) {
-      // Refresh the page when we come back (to see the new loan)
       setState(() {
         _pageDataFuture = _loadPageData();
       });
     });
   }
 
-  // --- NEW: Navigate to Edit Customer ---
   void _navigateToEditCustomer(Customer customer) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => EditCustomerPage(customer: customer),
       ),
     ).then((result) {
-      // If result is true, it means the customer was updated
       if (result == true) {
         setState(() {
           _pageDataFuture = _loadPageData();
@@ -157,13 +154,24 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     });
   }
 
+  // --- FIX: Helper to handle Base64 Images ---
+  ImageProvider? _getImageProvider(String? imageData) {
+    if (imageData == null || imageData.isEmpty) return null;
+    try {
+      // If it's a Data URI (data:image/png;base64,...), strip the header
+      final cleanBase64 = imageData.contains(',') ? imageData.split(',')[1] : imageData;
+      return MemoryImage(base64Decode(cleanBase64));
+    } catch (e) {
+      return null; // Fallback if invalid
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.customerName),
         actions: [
-          // --- NEW: Edit Button ---
           FutureBuilder<CustomerPageData>(
             future: _pageDataFuture,
             builder: (context, snapshot) {
@@ -177,8 +185,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
               return const SizedBox.shrink();
             },
           ),
-
-          // Existing Delete Button (Admin Only)
           if (_userRole == 'admin')
             IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -199,7 +205,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
               backgroundColor: Colors.green,
             );
           }
-          return const SizedBox.shrink(); // Hide if data not loaded
+          return const SizedBox.shrink();
         },
       ),
       body: FutureBuilder<CustomerPageData>(
@@ -256,7 +262,8 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
                 CircleAvatar(
                   radius: 30,
                   backgroundColor: Colors.indigo.shade100,
-                  backgroundImage: customer.imageUrl != null ? NetworkImage(customer.imageUrl!) : null,
+                  // --- FIX: Use the helper to load image ---
+                  backgroundImage: _getImageProvider(customer.imageUrl),
                   child: customer.imageUrl == null
                       ? Text(customer.name.isNotEmpty ? customer.name[0].toUpperCase() : '?', style: const TextStyle(fontSize: 24, color: Colors.indigo))
                       : null,
@@ -290,7 +297,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
                 ),
               ],
             ),
-            // --- SHOW KYC DETAILS IF AVAILABLE ---
             if (customer.idProofNumber != null || customer.nomineeName != null) ...[
               const SizedBox(height: 12),
               if (customer.idProofNumber != null)

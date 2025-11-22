@@ -1,4 +1,6 @@
+// lib/pages/edit_customer_page.dart
 import 'dart:io';
+import 'dart:convert'; // Added import
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pledge_loan_mobile/models/customer_model.dart';
@@ -46,7 +48,6 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
     }
   }
 
-  // --- NEW: Image Source Selector ---
   void _showImageSourceActionSheet(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -73,6 +74,17 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
         ),
       ),
     );
+  }
+
+  // --- FIX: Helper to handle Base64 Images ---
+  ImageProvider? _getImageProvider(String? imageData) {
+    if (imageData == null || imageData.isEmpty) return null;
+    try {
+      final cleanBase64 = imageData.contains(',') ? imageData.split(',')[1] : imageData;
+      return MemoryImage(base64Decode(cleanBase64));
+    } catch (e) {
+      return null;
+    }
   }
 
   void _submitForm() async {
@@ -113,16 +125,14 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
           child: Column(
             children: [
               GestureDetector(
-                onTap: () => _showImageSourceActionSheet(context), // --- UPDATED: Call the sheet ---
+                onTap: () => _showImageSourceActionSheet(context),
                 child: CircleAvatar(
                   radius: 50,
                   backgroundColor: Colors.grey[200],
-                  // Show new image if selected, else show existing URL, else show icon
+                  // --- FIX: Logic to choose between New File, Existing Base64, or Icon ---
                   backgroundImage: _imageFile != null
                       ? FileImage(_imageFile!)
-                      : (widget.customer.imageUrl != null
-                      ? NetworkImage(widget.customer.imageUrl!)
-                      : null) as ImageProvider?,
+                      : _getImageProvider(widget.customer.imageUrl),
                   child: (_imageFile == null && widget.customer.imageUrl == null)
                       ? const Icon(Icons.camera_alt, size: 40, color: Colors.grey)
                       : null,
@@ -132,6 +142,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
               const Text("Tap photo to change", style: TextStyle(color: Colors.grey, fontSize: 12)),
 
               const SizedBox(height: 20),
+              // ... Rest of your form fields remain the same ...
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
