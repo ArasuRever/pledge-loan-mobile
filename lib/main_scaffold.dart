@@ -8,8 +8,8 @@ import 'package:pledge_loan_mobile/pages/new_loan_workflow_page.dart';
 import 'package:pledge_loan_mobile/pages/all_loans_page.dart';
 import 'package:pledge_loan_mobile/pages/add_customer_page.dart';
 import 'package:pledge_loan_mobile/pages/recycle_bin_page.dart';
-// --- NEW: Import Reports Page ---
 import 'package:pledge_loan_mobile/pages/reports_page.dart';
+import 'package:pledge_loan_mobile/pages/business_settings_page.dart'; // <--- IMPORT NEW PAGE
 
 class MainScaffold extends StatefulWidget {
   final VoidCallback onLogout;
@@ -95,22 +95,14 @@ class _MainScaffoldState extends State<MainScaffold> {
   void _onMenuSelected(String value) {
     if (value == 'logout') {
       widget.onLogout();
-    }
-    if (value == 'manage_staff') {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => const ManageStaffPage()),
-      );
-    }
-    if (value == 'recycle_bin') {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => const RecycleBinPage()),
-      );
-    }
-    // --- NEW: Reports Navigation ---
-    if (value == 'reports') {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => const ReportsPage()),
-      );
+    } else if (value == 'manage_staff') {
+      Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ManageStaffPage()));
+    } else if (value == 'recycle_bin') {
+      Navigator.of(context).push(MaterialPageRoute(builder: (context) => const RecycleBinPage()));
+    } else if (value == 'reports') {
+      Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ReportsPage()));
+    } else if (value == 'settings') { // <--- NEW SETTINGS HANDLER
+      Navigator.of(context).push(MaterialPageRoute(builder: (context) => const BusinessSettingsPage()));
     }
   }
 
@@ -121,9 +113,7 @@ class _MainScaffoldState extends State<MainScaffold> {
       return FloatingActionButton(
         onPressed: () {
           Navigator.of(context)
-              .push(
-            MaterialPageRoute(builder: (context) => const AddCustomerPage()),
-          )
+              .push(MaterialPageRoute(builder: (context) => const AddCustomerPage()))
               .then((didAddCustomer) {
             if (didAddCustomer == true) {
               _customerPageKey.currentState?.handleRefresh();
@@ -152,26 +142,14 @@ class _MainScaffoldState extends State<MainScaffold> {
           PopupMenuButton<String>(
             onSelected: _onMenuSelected,
             itemBuilder: (context) => [
-              if (_userRole == 'admin')
-                const PopupMenuItem(
-                  value: 'manage_staff',
-                  child: Text('Manage Staff'),
-                ),
-              if (_userRole == 'admin')
-                const PopupMenuItem(
-                  value: 'recycle_bin',
-                  child: Text('Recycle Bin'),
-                ),
-              // --- NEW: Reports Menu Item ---
-              if (_userRole == 'admin')
-                const PopupMenuItem(
-                  value: 'reports',
-                  child: Text('Financial Reports'),
-                ),
-              const PopupMenuItem(
-                value: 'logout',
-                child: Text('Logout'),
-              ),
+              if (_userRole == 'admin') ...[
+                const PopupMenuItem(value: 'manage_staff', child: Row(children: [Icon(Icons.people, color: Colors.grey), SizedBox(width: 8), Text('Manage Staff')])),
+                const PopupMenuItem(value: 'recycle_bin', child: Row(children: [Icon(Icons.delete, color: Colors.grey), SizedBox(width: 8), Text('Recycle Bin')])),
+                const PopupMenuItem(value: 'reports', child: Row(children: [Icon(Icons.bar_chart, color: Colors.grey), SizedBox(width: 8), Text('Financial Reports')])),
+                const PopupMenuItem(value: 'settings', child: Row(children: [Icon(Icons.settings, color: Colors.grey), SizedBox(width: 8), Text('Business Settings')])), // <--- NEW MENU ITEM
+                const PopupMenuDivider(),
+              ],
+              const PopupMenuItem(value: 'logout', child: Row(children: [Icon(Icons.logout, color: Colors.grey), SizedBox(width: 8), Text('Logout')])),
             ],
           ),
         ],

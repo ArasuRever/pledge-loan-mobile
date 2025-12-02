@@ -324,8 +324,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     );
   }
 
-  Widget _buildLoanSection(
-      BuildContext context, String title, List<CustomerLoan> loans) {
+  Widget _buildLoanSection(BuildContext context, String title, List<CustomerLoan> loans) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -339,29 +338,42 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
             padding: EdgeInsets.all(8.0),
             child: Text('No loans in this category.'),
           ),
-        ListView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: loans.length,
-          itemBuilder: (context, index) {
-            final loan = loans[index];
-            return Card(
-              child: ListTile(
-                title: Text(loan.description ?? 'Loan #${loan.loanId}'),
-                subtitle: Text(
-                    'Book #: ${loan.bookLoanNumber ?? 'N/A'} - ${loan.formattedPrincipal}'),
-                trailing: Text(
-                  loan.status.toUpperCase(),
-                  style: TextStyle(
-                    color: loan.statusColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                onTap: () => _navigateToLoanDetail(loan.loanId),
+
+        // --- FIX: Replaced ListView.builder with Column ---
+        // This prevents nested scrolling issues ("overlayed" visual glitches)
+        ...loans.map((loan) => Card(
+          margin: const EdgeInsets.only(bottom: 10), // Space between cards
+          elevation: 2,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            title: Text(loan.description ?? 'Loan #${loan.loanId}', style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 6.0),
+              child: Text(
+                'Book #: ${loan.bookLoanNumber ?? 'N/A'}\n${loan.formattedPrincipal}',
+                style: const TextStyle(height: 1.3),
               ),
-            );
-          },
-        ),
+            ),
+            isThreeLine: true,
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                  color: loan.statusColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8)
+              ),
+              child: Text(
+                loan.status.toUpperCase(),
+                style: TextStyle(
+                  color: loan.statusColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 11,
+                ),
+              ),
+            ),
+            onTap: () => _navigateToLoanDetail(loan.loanId),
+          ),
+        )).toList(),
       ],
     );
   }

@@ -22,10 +22,8 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
   late TextEditingController _addressController;
   late TextEditingController _licenseController;
 
-  // Phone Controllers (Up to 3)
-  late TextEditingController _phone1Controller;
-  late TextEditingController _phone2Controller;
-  late TextEditingController _phone3Controller;
+  // Dynamic Phone List
+  final List<TextEditingController> _phoneControllers = [];
 
   File? _logoFile;
   String? _currentLogoUrl;
@@ -38,10 +36,26 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
     _nameController = TextEditingController();
     _addressController = TextEditingController();
     _licenseController = TextEditingController();
-    _phone1Controller = TextEditingController();
-    _phone2Controller = TextEditingController();
-    _phone3Controller = TextEditingController();
+    // Start with at least one phone field
+    _addPhoneField('');
     _loadSettings();
+  }
+
+  void _addPhoneField(String number) {
+    if (_phoneControllers.length < 3) {
+      _phoneControllers.add(TextEditingController(text: number));
+      setState(() {});
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Max 3 phone numbers allowed")));
+    }
+  }
+
+  void _removePhoneField(int index) {
+    if (_phoneControllers.length > 1) {
+      _phoneControllers[index].dispose();
+      _phoneControllers.removeAt(index);
+      setState(() {});
+    }
   }
 
   Future<void> _loadSettings() async {
@@ -52,16 +66,24 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
       _licenseController.text = settings.licenseNumber;
       _currentLogoUrl = settings.logoUrl;
 
-      // Split phone numbers (Backend stores as comma separated string)
-      List<String> phones = settings.phoneNumber.split(',').map((s) => s.trim()).toList();
-      if (phones.isNotEmpty) _phone1Controller.text = phones[0];
-      if (phones.length > 1) _phone2Controller.text = phones[1];
-      if (phones.length > 2) _phone3Controller.text = phones[2];
+      // Handle Phone Numbers
+      if (settings.phoneNumber.isNotEmpty) {
+        // Clear default empty field
+        for (var c in _phoneControllers) c.dispose();
+        _phoneControllers.clear();
+
+        List<String> phones = settings.phoneNumber.split(',').map((s) => s.trim()).toList();
+        for (String p in phones) {
+          if (p.isNotEmpty) _phoneControllers.add(TextEditingController(text: p));
+        }
+      }
+      // Ensure at least one field exists
+      if (_phoneControllers.isEmpty) _addPhoneField('');
 
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error loading settings: $e')));
+      // Fail silently or show toast, start with defaults
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -76,11 +98,10 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
     setState(() => _isSaving = true);
 
     // Combine phones
-    List<String> validPhones = [
-      _phone1Controller.text,
-      _phone2Controller.text,
-      _phone3Controller.text
-    ].where((s) => s.isNotEmpty).toList();
+    List<String> validPhones = _phoneControllers
+        .map((c) => c.text.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
 
     String combinedPhone = validPhones.join(', ');
 
@@ -96,7 +117,7 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings Updated Successfully!')));
-        Navigator.pop(context, true); // Return true to indicate update
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
@@ -109,7 +130,6 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
     if (_logoFile != null) return FileImage(_logoFile!);
     if (_currentLogoUrl != null && _currentLogoUrl!.isNotEmpty) {
       try {
-        // Handle Data URL
         if (_currentLogoUrl!.startsWith('data:')) {
           final base64Str = _currentLogoUrl!.split(',')[1];
           return MemoryImage(base64Decode(base64Str));
@@ -121,75 +141,147 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
   }
 
   @override
+  void dispose() {
+    for (var c in _phoneControllers) c.dispose();
+    _nameController.dispose();
+    _addressController.dispose();
+    _licenseController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
       appBar: AppBar(title: const Text("Business Settings")),
+      backgroundColor: const Color(0xFFF5F7FA),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: GestureDetector(
-                  onTap: _pickLogo,
-                  child: CircleAvatar(
-                    radius: 60,
-                    backgroundColor: Colors.grey[200],
-                    backgroundImage: _getLogoProvider(),
-                    child: _getLogoProvider() == null
-                        ? const Icon(Icons.add_a_photo, size: 40, color: Colors.grey)
-                        : null,
+              // --- LOGO CARD ---
+              Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    children: [
+                      GestureDetector(
+                        onTap: _pickLogo,
+                        child: Container(
+                          height: 120, width: 120,
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            shape: BoxShape.circle,
+                            image: _getLogoProvider() != null ? DecorationImage(image: _getLogoProvider()!, fit: BoxFit.contain) : null,
+                            border: Border.all(color: Colors.grey.shade300),
+                          ),
+                          child: _getLogoProvider() == null
+                              ? const Icon(Icons.add_a_photo, size: 40, color: Colors.grey)
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      const Text("Tap to change Logo", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(height: 10),
-              const Center(child: Text("Tap to update Logo", style: TextStyle(color: Colors.grey))),
+              const SizedBox(height: 16),
+
+              // --- IDENTITY INFO ---
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text("Company Identity", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1A237E))),
+                      const Divider(),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: const InputDecoration(labelText: "Business Name", prefixIcon: Icon(Icons.store)),
+                        validator: (v) => v!.isEmpty ? 'Required' : null,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _licenseController,
+                        decoration: const InputDecoration(labelText: "License Number", prefixIcon: Icon(Icons.badge)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // --- CONTACT INFO (Dynamic Phones) ---
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Contact Details", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1A237E))),
+                          if (_phoneControllers.length < 3)
+                            IconButton(
+                              icon: const Icon(Icons.add_circle, color: Colors.green),
+                              tooltip: "Add another number",
+                              onPressed: () => _addPhoneField(''),
+                            )
+                        ],
+                      ),
+                      const Divider(),
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: _addressController,
+                        maxLines: 3,
+                        decoration: const InputDecoration(labelText: "Address", prefixIcon: Icon(Icons.location_on)),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text("Mobile Numbers", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                      const SizedBox(height: 8),
+
+                      // Dynamic Phone Fields
+                      ..._phoneControllers.asMap().entries.map((entry) {
+                        int idx = entry.key;
+                        TextEditingController controller = entry.value;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10.0),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextFormField(
+                                  controller: controller,
+                                  keyboardType: TextInputType.phone,
+                                  decoration: InputDecoration(
+                                    labelText: idx == 0 ? "Primary Mobile" : "Mobile ${idx + 1}",
+                                    prefixIcon: const Icon(Icons.phone_android),
+                                  ),
+                                ),
+                              ),
+                              if (idx > 0)
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                                  onPressed: () => _removePhoneField(idx),
+                                ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
+                ),
+              ),
 
               const SizedBox(height: 30),
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: "Business Name", prefixIcon: Icon(Icons.store)),
-                validator: (v) => v!.isEmpty ? 'Required' : null,
-              ),
-              const SizedBox(height: 15),
-              TextFormField(
-                controller: _addressController,
-                maxLines: 3,
-                decoration: const InputDecoration(labelText: "Address", prefixIcon: Icon(Icons.location_on)),
-              ),
-              const SizedBox(height: 15),
-              TextFormField(
-                controller: _licenseController,
-                decoration: const InputDecoration(labelText: "License Number", prefixIcon: Icon(Icons.badge)),
-              ),
-
-              const SizedBox(height: 25),
-              const Text("Contact Numbers (Optional)", style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-
-              TextFormField(
-                controller: _phone1Controller,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: "Mobile 1 (Primary)", prefixIcon: Icon(Icons.phone)),
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _phone2Controller,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: "Mobile 2", prefixIcon: Icon(Icons.phone_android)),
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _phone3Controller,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(labelText: "Mobile 3", prefixIcon: Icon(Icons.phone_android)),
-              ),
-
-              const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
                 height: 55,
@@ -200,6 +292,7 @@ class _BusinessSettingsPageState extends State<BusinessSettingsPage> {
                       : const Text("SAVE SETTINGS"),
                 ),
               ),
+              const SizedBox(height: 40),
             ],
           ),
         ),

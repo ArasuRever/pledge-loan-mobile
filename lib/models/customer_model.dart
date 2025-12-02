@@ -1,26 +1,34 @@
-// lib/models/customer_model.dart
+//
 class Customer {
   final int id;
   final String name;
   final String phoneNumber;
   final String? address;
-  // --- NEW KYC FIELDS ---
+  final String? imageUrl;
+  // KYC
   final String? idProofType;
   final String? idProofNumber;
   final String? nomineeName;
   final String? nomineeRelation;
-  final String? imageUrl; // Added support for image URL if you use it
+  // --- NEW STATS ---
+  final int activeLoanCount;
+  final int overdueLoanCount;
+  final int paidLoanCount;
 
   Customer({
     required this.id,
     required this.name,
     required this.phoneNumber,
     this.address,
+    this.imageUrl,
     this.idProofType,
     this.idProofNumber,
     this.nomineeName,
     this.nomineeRelation,
-    this.imageUrl,
+    // --- NEW ---
+    this.activeLoanCount = 0,
+    this.overdueLoanCount = 0,
+    this.paidLoanCount = 0,
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) {
@@ -29,12 +37,15 @@ class Customer {
       name: json['name'],
       phoneNumber: json['phone_number'],
       address: json['address'],
-      // --- MAP NEW FIELDS ---
+      imageUrl: json['customer_image_url'],
       idProofType: json['id_proof_type'],
       idProofNumber: json['id_proof_number'],
       nomineeName: json['nominee_name'],
       nomineeRelation: json['nominee_relation'],
-      imageUrl: json['customer_image_url'],
+      // --- MAP NEW FIELDS ---
+      activeLoanCount: json['active_loan_count'] ?? 0,
+      overdueLoanCount: json['overdue_loan_count'] ?? 0,
+      paidLoanCount: json['paid_loan_count'] ?? 0,
     );
   }
 }

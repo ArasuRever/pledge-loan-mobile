@@ -17,7 +17,6 @@ class _NewLoanWorkflowPageState extends State<NewLoanWorkflowPage> {
 
   List<Customer> _allCustomers = [];
   List<Customer> _filteredCustomers = [];
-  String _statusMessage = 'Loading customers...';
   bool _isLoading = true;
 
   @override
@@ -30,17 +29,15 @@ class _NewLoanWorkflowPageState extends State<NewLoanWorkflowPage> {
   Future<void> _fetchCustomers() async {
     try {
       final customers = await _apiService.getCustomers();
-      setState(() {
-        _allCustomers = customers;
-        _filteredCustomers = customers;
-        _isLoading = false;
-        _statusMessage = customers.isEmpty ? 'No customers found.' : 'Search for a customer by name or phone.';
-      });
+      if (mounted) {
+        setState(() {
+          _allCustomers = customers;
+          _filteredCustomers = customers;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _statusMessage = 'Error loading customers: ${e.toString()}';
-      });
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -55,74 +52,62 @@ class _NewLoanWorkflowPageState extends State<NewLoanWorkflowPage> {
     });
   }
 
-  void _onCustomerSelected(Customer customer) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => LoanFormPage(
-          // --- FIX: Pass ID and Name separately ---
-          customerId: customer.id,
-          customerName: customer.name,
-        ),
-      ),
-    );
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          TextField(
-            controller: _searchController,
-            decoration: InputDecoration(
-              labelText: 'Search Customer',
-              hintText: 'Start typing name or phone number...',
-              prefixIcon: const Icon(Icons.search),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12.0),
+    return Column(
+      children: [
+        // --- Header ---
+        Container(
+          padding: const EdgeInsets.all(20),
+          color: Colors.white,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text("Select Customer", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A237E))),
+              const SizedBox(height: 4),
+              const Text("Who is pledging this item?", style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'Search...',
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: _isLoading
-                ? Center(child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const CircularProgressIndicator(),
-                const SizedBox(height: 10),
-                Text(_statusMessage),
-              ],
-            ))
-                : _filteredCustomers.isEmpty
-                ? Center(child: Text(_searchController.text.isEmpty ? _statusMessage : 'No customers match your search.'))
-                : ListView.builder(
-              itemCount: _filteredCustomers.length,
-              itemBuilder: (context, index) {
-                final customer = _filteredCustomers[index];
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 4.0),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      child: Text(customer.name[0]),
-                    ),
-                    title: Text(customer.name),
-                    subtitle: Text(customer.phoneNumber),
-                    onTap: () => _onCustomerSelected(customer),
-                  ),
-                );
-              },
-            ),
+        ),
+
+        // --- List ---
+        Expanded(
+          child: _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _filteredCustomers.isEmpty
+              ? Center(child: Text(_searchController.text.isEmpty ? "No customers found." : "No match found."))
+              : ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _filteredCustomers.length,
+            itemBuilder: (context, index) {
+              final customer = _filteredCustomers[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  leading: CircleAvatar(backgroundColor: Colors.orange.shade100, child: Text(customer.name[0], style: TextStyle(color: Colors.orange.shade900))),
+                  title: Text(customer.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: Text(customer.phoneNumber),
+                  trailing: const Icon(Icons.add_circle, color: Colors.green),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => LoanFormPage(customerId: customer.id, customerName: customer.name))),
+                ),
+              );
+            },
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
