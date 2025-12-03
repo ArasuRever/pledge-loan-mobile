@@ -4,7 +4,8 @@ import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/models/customer_model.dart';
 import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
 import 'package:pledge_loan_mobile/pages/loan_form_page.dart';
-import 'package:url_launcher/url_launcher.dart'; // Ensure this is in pubspec.yaml
+import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import this
 import 'dart:convert';
 
 class CustomersPage extends StatefulWidget {
@@ -22,7 +23,6 @@ class CustomersPageState extends State<CustomersPage> {
   List<Customer> _allCustomers = [];
   List<Customer> _filteredCustomers = [];
 
-  // To store tap position for the menu
   Offset _tapPosition = Offset.zero;
 
   @override
@@ -34,7 +34,13 @@ class CustomersPageState extends State<CustomersPage> {
 
   Future<List<Customer>> _loadCustomers() async {
     try {
-      final customers = await _apiService.getCustomers();
+      // 1. Get stored branch
+      final prefs = await SharedPreferences.getInstance();
+      final branchId = prefs.getInt('current_branch_view');
+
+      // 2. Pass to API
+      final customers = await _apiService.getCustomers(branchId: branchId);
+
       if (mounted) {
         setState(() {
           _allCustomers = customers;
@@ -67,18 +73,12 @@ class CustomersPageState extends State<CustomersPage> {
   }
 
   Future<void> _makePhoneCall(String phoneNumber) async {
-    // 1. Clean the number (remove spaces, dashes, parentheses)
     final cleanNumber = phoneNumber.replaceAll(RegExp(r'[^\d+]'), '');
-
-    // 2. Create Uri
     final Uri launchUri = Uri(scheme: 'tel', path: cleanNumber);
-
     try {
-      // 3. Use 'launchUrl' with specific mode
       if (await canLaunchUrl(launchUri)) {
         await launchUrl(launchUri);
       } else {
-        // Fallback: Try launching without checking 'canLaunchUrl' (sometimes helps on newer Android)
         await launchUrl(launchUri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
@@ -87,14 +87,13 @@ class CustomersPageState extends State<CustomersPage> {
     }
   }
 
-  // --- NEW: POPUP MENU (Clean Card Pop-up) ---
   void _showContextMenu(BuildContext context, Customer customer) async {
     final RenderBox overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
 
     final result = await showMenu<String>(
       context: context,
       position: RelativeRect.fromRect(
-        _tapPosition & const Size(40, 40), // Smaller rect for precision
+        _tapPosition & const Size(40, 40),
         Offset.zero & overlay.size,
       ),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

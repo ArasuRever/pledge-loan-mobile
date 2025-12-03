@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pledge_loan_mobile/models/loan_model.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:pledge_loan_mobile/pages/loan_detail_page.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import this
 
 class AllLoansPage extends StatefulWidget {
   const AllLoansPage({super.key});
@@ -31,7 +32,13 @@ class _AllLoansPageState extends State<AllLoansPage> {
 
   Future<List<Loan>> _loadLoans() async {
     try {
-      final loans = await _apiService.getLoans();
+      // 1. Get stored branch
+      final prefs = await SharedPreferences.getInstance();
+      final branchId = prefs.getInt('current_branch_view');
+
+      // 2. Pass to API
+      final loans = await _apiService.getLoans(branchId: branchId);
+
       if (mounted) {
         setState(() {
           _allLoans = loans;
@@ -53,7 +60,6 @@ class _AllLoansPageState extends State<AllLoansPage> {
         if (searchTerm.isEmpty) return true;
 
         final nameMatch = loan.customerName.toLowerCase().contains(searchTerm);
-        // --- FIX: ADDED PHONE SEARCH BACK ---
         final phoneMatch = loan.phoneNumber?.contains(searchTerm) ?? false;
         final bookMatch = loan.bookLoanNumber?.toLowerCase().contains(searchTerm) ?? false;
 
@@ -85,7 +91,7 @@ class _AllLoansPageState extends State<AllLoansPage> {
               TextField(
                 controller: _searchController,
                 decoration: InputDecoration(
-                  hintText: 'Name, Phone, or Book #', // Updated Hint
+                  hintText: 'Name, Phone, or Book #',
                   prefixIcon: const Icon(Icons.search),
                   filled: true,
                   fillColor: Colors.grey[100],
@@ -96,7 +102,6 @@ class _AllLoansPageState extends State<AllLoansPage> {
                       : null,
                 ),
               ),
-              // ... Status Chips (Same as before) ...
               const SizedBox(height: 12),
               SizedBox(
                 height: 40,
@@ -160,7 +165,6 @@ class _AllLoansPageState extends State<AllLoansPage> {
   }
 }
 
-// _LoanCard remains the same as previous update
 class _LoanCard extends StatelessWidget {
   final Loan loan;
   const _LoanCard({required this.loan});

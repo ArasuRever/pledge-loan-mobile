@@ -1,6 +1,8 @@
+// lib/pages/day_book_page.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import this
 
 class DayBookPage extends StatefulWidget {
   const DayBookPage({super.key});
@@ -30,7 +32,13 @@ class _DayBookPageState extends State<DayBookPage> {
 
     try {
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-      final data = await _apiService.getDayBook(dateStr);
+
+      // 1. Get stored branch
+      final prefs = await SharedPreferences.getInstance();
+      final branchId = prefs.getInt('current_branch_view');
+
+      // 2. Pass to API
+      final data = await _apiService.getDayBook(dateStr, branchId: branchId);
       setState(() {
         _dayBookData = data;
       });

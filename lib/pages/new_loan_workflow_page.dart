@@ -1,8 +1,10 @@
 // lib/pages/new_loan_workflow_page.dart
 import 'package:flutter/material.dart';
-import 'package:pledge_loan_mobile/models/customer_model.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
-import 'loan_form_page.dart';
+import 'package:pledge_loan_mobile/models/customer_model.dart';
+import 'package:pledge_loan_mobile/pages/add_customer_page.dart';
+import 'package:pledge_loan_mobile/pages/loan_form_page.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import SharedPreferences
 
 class NewLoanWorkflowPage extends StatefulWidget {
   const NewLoanWorkflowPage({super.key});
@@ -22,13 +24,19 @@ class _NewLoanWorkflowPageState extends State<NewLoanWorkflowPage> {
   @override
   void initState() {
     super.initState();
-    _fetchCustomers();
+    _loadCustomers();
     _searchController.addListener(_filterCustomers);
   }
 
-  Future<void> _fetchCustomers() async {
+  Future<void> _loadCustomers() async {
     try {
-      final customers = await _apiService.getCustomers();
+      // 1. Get stored Branch ID
+      final prefs = await SharedPreferences.getInstance();
+      final branchId = prefs.getInt('current_branch_view');
+
+      // 2. Pass it to API
+      final customers = await _apiService.getCustomers(branchId: branchId);
+
       if (mounted) {
         setState(() {
           _allCustomers = customers;
@@ -37,77 +45,116 @@ class _NewLoanWorkflowPageState extends State<NewLoanWorkflowPage> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     }
   }
 
   void _filterCustomers() {
-    final searchTerm = _searchController.text.toLowerCase();
+    final query = _searchController.text.toLowerCase();
     setState(() {
-      _filteredCustomers = _allCustomers.where((customer) {
-        final nameMatch = customer.name.toLowerCase().contains(searchTerm);
-        final phoneMatch = customer.phoneNumber.contains(searchTerm);
-        return nameMatch || phoneMatch;
+      _filteredCustomers = _allCustomers.where((c) {
+        return c.name.toLowerCase().contains(query) || c.phoneNumber.contains(query);
       }).toList();
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // --- Header ---
-        Container(
-          padding: const EdgeInsets.all(20),
-          color: Colors.white,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text("Select Customer", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A237E))),
-              const SizedBox(height: 4),
-              const Text("Who is pledging this item?", style: TextStyle(color: Colors.grey)),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  hintText: 'Search...',
-                  prefixIcon: const Icon(Icons.search),
-                  filled: true,
-                  fillColor: Colors.grey[100],
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+    return Scaffold(
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: const Text('New Loan'),
+        elevation: 0,
+      ),
+      body: Column(
+        children: [
+          // 1. Search Bar
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Search Customer to Pledge...',
+                prefixIcon: const Icon(Icons.search),
+                filled: true,
+                fillColor: Colors.grey[100],
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+          ),
+
+          // 2. Create New Customer Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(context, MaterialPageRoute(builder: (context) => const AddCustomerPage()))
+                      .then((_) => _loadCustomers()); // Refresh on return
+                },
+                icon: const Icon(Icons.person_add),
+                label: const Text("Create New Customer"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.indigo,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
               ),
-            ],
+            ),
           ),
-        ),
 
-        // --- List ---
-        Expanded(
-          child: _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _filteredCustomers.isEmpty
-              ? Center(child: Text(_searchController.text.isEmpty ? "No customers found." : "No match found."))
-              : ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _filteredCustomers.length,
-            itemBuilder: (context, index) {
-              final customer = _filteredCustomers[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  leading: CircleAvatar(backgroundColor: Colors.orange.shade100, child: Text(customer.name[0], style: TextStyle(color: Colors.orange.shade900))),
+          const SizedBox(height: 20),
+          const Divider(height: 1),
+
+          // 3. Customer List
+          Expanded(
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _filteredCustomers.isEmpty
+                ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.person_off, size: 64, color: Colors.grey[300]),
+                  const SizedBox(height: 16),
+                  Text("No customers found.", style: TextStyle(color: Colors.grey[600])),
+                ],
+              ),
+            )
+                : ListView.builder(
+              itemCount: _filteredCustomers.length,
+              itemBuilder: (context, index) {
+                final customer = _filteredCustomers[index];
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.indigo.shade50,
+                    child: Text(customer.name[0].toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                  ),
                   title: Text(customer.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text(customer.phoneNumber),
-                  trailing: const Icon(Icons.add_circle, color: Colors.green),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => LoanFormPage(customerId: customer.id, customerName: customer.name))),
-                ),
-              );
-            },
+                  trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => LoanFormPage(
+                          customerId: customer.id,
+                          customerName: customer.name,
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

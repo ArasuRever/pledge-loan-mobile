@@ -16,7 +16,7 @@ import 'package:pledge_loan_mobile/models/recycle_bin_model.dart';
 import 'package:pledge_loan_mobile/models/loan_history_model.dart';
 import 'package:pledge_loan_mobile/models/financial_report_model.dart';
 import 'package:pledge_loan_mobile/models/business_settings_model.dart';
-import 'package:pledge_loan_mobile/models/branch_model.dart'; // Ensure you have this model
+import 'package:pledge_loan_mobile/models/branch_model.dart';
 
 class ApiService {
   // Ensure this URL matches your live server
@@ -54,6 +54,16 @@ class ApiService {
     };
   }
 
+  // --- HELPER: Build Query String ---
+  String _buildQuery({int? branchId, String? extra}) {
+    List<String> params = [];
+    if (branchId != null) params.add('branchId=$branchId');
+    if (extra != null && extra.isNotEmpty) params.add(extra);
+
+    if (params.isEmpty) return '';
+    return '?${params.join('&')}';
+  }
+
   Future<bool> login(String username, String password) async {
     try {
       final response = await http.post(
@@ -87,15 +97,14 @@ class ApiService {
     await prefs.remove('jwt_token');
     await prefs.remove('user_data');
     await prefs.remove('role');
+    await prefs.remove('current_branch_view'); // Clear view selection on logout
+    await prefs.remove('current_branch_name');
   }
 
-  // --- DASHBOARD (Updated with Branch Filter) ---
+  // --- DASHBOARD ---
   Future<Map<String, dynamic>> getDashboardStats({int? branchId}) async {
     final headers = await _getAuthHeaders();
-    String query = '';
-    if (branchId != null) {
-      query = '?branchId=$branchId';
-    }
+    final query = _buildQuery(branchId: branchId);
     final response = await http.get(
       Uri.parse('$_baseUrl/dashboard/stats$query'),
       headers: headers,
@@ -107,7 +116,6 @@ class ApiService {
     }
   }
 
-  // --- SEARCH (Fixing missing method error) ---
   Future<List<dynamic>> search(String query) async {
     if (query.length < 2) return [];
     final headers = await _getAuthHeaders();
@@ -122,10 +130,10 @@ class ApiService {
     }
   }
 
-  // --- RECENT ACTIVITY (Fixing missing methods error) ---
+  // --- RECENT ACTIVITY ---
   Future<List<dynamic>> getRecentCreatedLoans({int? branchId}) async {
     final headers = await _getAuthHeaders();
-    String query = branchId != null ? '?branchId=$branchId' : '';
+    final query = _buildQuery(branchId: branchId);
     final response = await http.get(
       Uri.parse('$_baseUrl/loans/recent/created$query'),
       headers: headers,
@@ -139,7 +147,7 @@ class ApiService {
 
   Future<List<dynamic>> getRecentClosedLoans({int? branchId}) async {
     final headers = await _getAuthHeaders();
-    String query = branchId != null ? '?branchId=$branchId' : '';
+    final query = _buildQuery(branchId: branchId);
     final response = await http.get(
       Uri.parse('$_baseUrl/loans/recent/closed$query'),
       headers: headers,
@@ -195,11 +203,12 @@ class ApiService {
     }
   }
 
-  // --- CUSTOMERS ---
-  Future<List<Customer>> getCustomers() async {
+  // --- CUSTOMERS (UPDATED) ---
+  Future<List<Customer>> getCustomers({int? branchId}) async {
     final headers = await _getAuthHeaders();
+    final query = _buildQuery(branchId: branchId);
     final response = await http.get(
-      Uri.parse('$_baseUrl/customers'),
+      Uri.parse('$_baseUrl/customers$query'),
       headers: headers,
     );
     if (response.statusCode == 200) {
@@ -328,11 +337,12 @@ class ApiService {
     }
   }
 
-  // --- LOANS ---
-  Future<List<Loan>> getLoans() async {
+  // --- LOANS (UPDATED) ---
+  Future<List<Loan>> getLoans({int? branchId}) async {
     final headers = await _getAuthHeaders();
+    final query = _buildQuery(branchId: branchId);
     final response = await http.get(
-      Uri.parse('$_baseUrl/loans'),
+      Uri.parse('$_baseUrl/loans$query'),
       headers: headers,
     );
     if (response.statusCode == 200) {
@@ -532,7 +542,7 @@ class ApiService {
     }
   }
 
-  // --- SETTINGS ---
+  // --- SETTINGS (UPDATED) ---
   Future<BusinessSettings> getBusinessSettings({int? branchId}) async {
     try {
       final globalRes = await http.get(Uri.parse('$_baseUrl/settings'));
@@ -540,9 +550,6 @@ class ApiService {
 
       Map<String, dynamic> settingsMap = jsonDecode(globalRes.body);
 
-      // Determine which branch to load:
-      // 1. Explicit override (from Admin dropdown)
-      // 2. Or User's assigned branch
       int? targetBranchId = branchId;
 
       if (targetBranchId == null) {
@@ -564,8 +571,6 @@ class ApiService {
               settingsMap['address'] = branchData['address'] ?? settingsMap['address'];
               settingsMap['phone_number'] = branchData['phone_number'] ?? settingsMap['phone_number'];
               settingsMap['license_number'] = branchData['license_number'] ?? settingsMap['license_number'];
-              // Note: Branches usually don't have their own logo URL in DB yet,
-              // so it falls back to global logo, which is fine.
             }
           }
         } catch (e) {
@@ -638,7 +643,7 @@ class ApiService {
     required String username,
     required String password,
     String role = 'staff',
-    int? branchId, // <--- NEW PARAMETER
+    int? branchId,
   }) async {
     final headers = await _getAuthHeaders();
     final response = await http.post(
@@ -648,7 +653,7 @@ class ApiService {
         'username': username,
         'password': password,
         'role': role,
-        'branchId': branchId, // <--- Sent to backend
+        'branchId': branchId,
       }),
     );
     if (response.statusCode == 201) {
@@ -789,14 +794,19 @@ class ApiService {
     }
   }
 
-  // --- FINANCIAL REPORT ---
-  Future<FinancialReport> getFinancialReport(String startDate, String endDate) async {
+  // --- FINANCIAL REPORT (UPDATED) ---
+  Future<FinancialReport> getFinancialReport(String startDate, String endDate, {int? branchId}) async {
     final headers = await _getAuthHeaders();
-    final uri = Uri.parse('$_baseUrl/reports/financial-summary').replace(queryParameters: {
-      'startDate': startDate,
-      'endDate': endDate,
-    });
-    final response = await http.get(uri, headers: headers);
+    // Build query carefully
+    String query = 'startDate=$startDate&endDate=$endDate';
+    if (branchId != null) {
+      query += '&branchId=$branchId';
+    }
+
+    final response = await http.get(
+      Uri.parse('$_baseUrl/reports/financial-summary?$query'),
+      headers: headers,
+    );
     if (response.statusCode == 200) {
       return FinancialReport.fromJson(jsonDecode(response.body));
     } else {
@@ -804,11 +814,16 @@ class ApiService {
     }
   }
 
-  // --- DAYBOOK ---
-  Future<Map<String, dynamic>> getDayBook(String date) async {
+  // --- DAYBOOK (UPDATED) ---
+  Future<Map<String, dynamic>> getDayBook(String date, {int? branchId}) async {
     final headers = await _getAuthHeaders();
+    String query = 'date=$date';
+    if (branchId != null) {
+      query += '&branchId=$branchId';
+    }
+
     final response = await http.get(
-      Uri.parse('$_baseUrl/reports/day-book?date=$date'),
+      Uri.parse('$_baseUrl/reports/day-book?$query'),
       headers: headers,
     );
     if (response.statusCode == 200) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pledge_loan_mobile/models/financial_report_model.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // Import this
 
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key});
@@ -43,7 +44,12 @@ class _ReportsPageState extends State<ReportsPage> {
       final startStr = DateFormat('yyyy-MM-dd').format(_selectedDateRange!.start);
       final endStr = DateFormat('yyyy-MM-dd').format(_selectedDateRange!.end);
 
-      final data = await _apiService.getFinancialReport(startStr, endStr);
+      // 1. Get stored branch
+      final prefs = await SharedPreferences.getInstance();
+      final branchId = prefs.getInt('current_branch_view');
+
+      // 2. Pass to API
+      final data = await _apiService.getFinancialReport(startStr, endStr, branchId: branchId);
       setState(() {
         _reportData = data;
       });
