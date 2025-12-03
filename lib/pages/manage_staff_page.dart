@@ -1,6 +1,7 @@
 // lib/pages/manage_staff_page.dart
 import 'package:flutter/material.dart';
 import 'package:pledge_loan_mobile/models/user_model.dart';
+import 'package:pledge_loan_mobile/models/branch_model.dart'; // Import Branch Model
 import 'package:pledge_loan_mobile/services/api_service.dart';
 
 class ManageStaffPage extends StatefulWidget {
@@ -12,25 +13,34 @@ class ManageStaffPage extends StatefulWidget {
 
 class _ManageStaffPageState extends State<ManageStaffPage> {
   final ApiService _apiService = ApiService();
+
   List<User> _users = [];
+  List<Branch> _branches = []; // Store available branches
+
   bool _isLoading = true;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _fetchUsers();
+    _fetchData();
   }
 
-  Future<void> _fetchUsers() async {
+  Future<void> _fetchData() async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
     try {
-      final users = await _apiService.getStaff();
+      // Fetch Users AND Branches in parallel
+      final results = await Future.wait([
+        _apiService.getStaff(),
+        _apiService.getBranches(),
+      ]);
+
       setState(() {
-        _users = users;
+        _users = results[0] as List<User>;
+        _branches = results[1] as List<Branch>;
       });
     } catch (e) {
       setState(() {
@@ -47,11 +57,12 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
   Future<void> _showAddUserDialog() async {
     final usernameController = TextEditingController();
     final passwordController = TextEditingController();
-    String role = 'staff'; // Default
+    String role = 'staff';
+    int? selectedBranchId; // Selected Branch
 
     await showModalBottomSheet(
       context: context,
-      isScrollControlled: true, // Allows sheet to resize with keyboard
+      isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -74,7 +85,7 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Add a new staff member or administrator.',
+                'Add a new staff member, manager, or admin.',
                 style: TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 32),
@@ -120,20 +131,54 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
                       onTap: () => setSheetState(() => role = 'staff'),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildRoleSelector(
+                      label: 'MANAGER',
+                      icon: Icons.manage_accounts,
+                      color: Colors.orange,
+                      isSelected: role == 'manager',
+                      onTap: () => setSheetState(() => role = 'manager'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: _buildRoleSelector(
                       label: 'ADMIN',
                       icon: Icons.security,
                       color: Colors.red,
                       isSelected: role == 'admin',
-                      onTap: () => setSheetState(() => role = 'admin'),
+                      onTap: () => setSheetState(() {
+                        role = 'admin';
+                        selectedBranchId = null; // Admins don't belong to a branch
+                      }),
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
+
+              // --- BRANCH SELECTOR (Only if not Admin) ---
+              if (role != 'admin') ...[
+                const Text("Assign Branch", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<int>(
+                  value: selectedBranchId,
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    prefixIcon: const Icon(Icons.store, color: Colors.indigo),
+                  ),
+                  hint: const Text("Select a Branch"),
+                  items: _branches.map((b) => DropdownMenuItem(
+                    value: b.id,
+                    child: Text(b.branchName),
+                  )).toList(),
+                  onChanged: (val) => setSheetState(() => selectedBranchId = val),
+                ),
+                const SizedBox(height: 24),
+              ],
 
               // Create Button
               SizedBox(
@@ -141,9 +186,18 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
                 height: 55,
                 child: ElevatedButton(
                   onPressed: () {
-                    if (usernameController.text.isEmpty || passwordController.text.isEmpty) return;
+                    if (usernameController.text.isEmpty || passwordController.text.isEmpty) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Username and Password required')));
+                      return;
+                    }
+                    // Validate Branch selection for non-admins
+                    if (role != 'admin' && selectedBranchId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select a Branch')));
+                      return;
+                    }
+
                     Navigator.pop(context);
-                    _createUser(usernameController.text, passwordController.text, role);
+                    _createUser(usernameController.text, passwordController.text, role, selectedBranchId);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.indigo,
@@ -162,7 +216,6 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
     );
   }
 
-  // Helper widget for the role cards
   Widget _buildRoleSelector({
     required String label,
     required IconData icon,
@@ -173,7 +226,7 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
           color: isSelected ? color.withOpacity(0.1) : Colors.white,
           border: Border.all(
@@ -184,14 +237,14 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
         ),
         child: Column(
           children: [
-            Icon(icon, color: isSelected ? color : Colors.grey, size: 30),
-            const SizedBox(height: 8),
+            Icon(icon, color: isSelected ? color : Colors.grey, size: 24),
+            const SizedBox(height: 4),
             Text(
               label,
               style: TextStyle(
                 color: isSelected ? color : Colors.grey,
                 fontWeight: FontWeight.bold,
-                fontSize: 16,
+                fontSize: 12,
               ),
             ),
           ],
@@ -199,20 +252,25 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
       ),
     );
   }
-  // --- END REDESIGN ---
 
-  Future<void> _createUser(String username, String password, String role) async {
+  Future<void> _createUser(String username, String password, String role, int? branchId) async {
     setState(() => _isLoading = true);
     try {
-      await _apiService.createStaff(username: username, password: password, role: role);
+      await _apiService.createStaff(
+          username: username,
+          password: password,
+          role: role,
+          branchId: branchId // <--- Pass the ID
+      );
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User created successfully!'), backgroundColor: Colors.green));
-      _fetchUsers();
+      _fetchData();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
       setState(() => _isLoading = false);
     }
   }
 
+  // ... (existing _deleteUser and _changePassword methods remain the same) ...
   Future<void> _deleteUser(int id) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -232,7 +290,7 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
     try {
       await _apiService.deleteStaff(id);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('User deleted.')));
-      _fetchUsers();
+      _fetchData();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
       setState(() => _isLoading = false);
@@ -274,10 +332,7 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
-      appBar: AppBar(
-        title: const Text('Manage Staff'),
-        elevation: 0,
-      ),
+      appBar: AppBar(title: const Text('Manage Staff')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _showAddUserDialog,
         backgroundColor: Colors.indigo,
@@ -294,6 +349,15 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
         itemBuilder: (context, index) {
           final user = _users[index];
           final isAdmin = user.role == 'admin';
+          final isManager = user.role == 'manager';
+
+          // Find branch name for this user
+          String branchName = 'Main';
+          if (user.branchId != null) {
+            final b = _branches.firstWhere((b) => b.id == user.branchId, orElse: () => Branch(id: 0, branchName: 'Unknown', branchCode: '', isActive: 1));
+            if (b.id != 0) branchName = b.branchName;
+          }
+
           return Card(
             elevation: 2,
             margin: const EdgeInsets.only(bottom: 12),
@@ -302,28 +366,52 @@ class _ManageStaffPageState extends State<ManageStaffPage> {
               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               leading: CircleAvatar(
                 radius: 24,
-                backgroundColor: isAdmin ? Colors.red.shade100 : Colors.blue.shade100,
-                child: Icon(isAdmin ? Icons.security : Icons.person, color: isAdmin ? Colors.red : Colors.blue),
+                backgroundColor: isAdmin ? Colors.red.shade100 : (isManager ? Colors.orange.shade100 : Colors.blue.shade100),
+                child: Icon(
+                    isAdmin ? Icons.security : (isManager ? Icons.manage_accounts : Icons.person),
+                    color: isAdmin ? Colors.red : (isManager ? Colors.orange : Colors.blue)
+                ),
               ),
               title: Text(user.username, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              subtitle: Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: isAdmin ? Colors.red.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: isAdmin ? Colors.red.withOpacity(0.5) : Colors.blue.withOpacity(0.5), width: 0.5),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: isAdmin ? Colors.red.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          user.role.toUpperCase(),
+                          style: TextStyle(
+                              color: isAdmin ? Colors.red : Colors.blue,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 10
+                          ),
+                        ),
                       ),
-                      child: Text(
-                        user.role.toUpperCase(),
-                        style: TextStyle(color: isAdmin ? Colors.red : Colors.blue, fontWeight: FontWeight.bold, fontSize: 10),
-                      ),
-                    ),
-                  ],
-                ),
+                      const SizedBox(width: 8),
+                      // Show Branch Badge if not Admin
+                      if (!isAdmin)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                              color: Colors.grey.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                              border: Border.all(color: Colors.grey.shade400)
+                          ),
+                          child: Text(
+                            branchName,
+                            style: TextStyle(color: Colors.grey.shade700, fontSize: 10, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
               ),
               trailing: PopupMenuButton<String>(
                 onSelected: (value) {

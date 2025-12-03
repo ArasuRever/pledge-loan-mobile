@@ -1,8 +1,8 @@
 class User {
   final int id;
   final String username;
-  final String role;
-  final int? branchId; // Added branchId
+  final String role; // 'admin', 'manager', 'staff'
+  final int? branchId;
 
   User({
     required this.id,
@@ -16,7 +16,8 @@ class User {
       id: json['id'],
       username: json['username'],
       role: json['role'],
-      branchId: json['branchId'], // Map from JSON
+      // Handles both camelCase (Login) and snake_case (DB/Staff List) formats
+      branchId: json['branchId'] ?? json['branch_id'],
     );
   }
 
@@ -29,6 +30,8 @@ class User {
     };
   }
 
+  // Role checks
   bool get isAdmin => role == 'admin';
   bool get isManager => role == 'manager';
+  bool get isStaff => role == 'staff'; // <--- Added this
 }

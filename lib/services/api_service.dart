@@ -16,6 +16,7 @@ import 'package:pledge_loan_mobile/models/recycle_bin_model.dart';
 import 'package:pledge_loan_mobile/models/loan_history_model.dart';
 import 'package:pledge_loan_mobile/models/financial_report_model.dart';
 import 'package:pledge_loan_mobile/models/business_settings_model.dart';
+import 'package:pledge_loan_mobile/models/branch_model.dart'; // Ensure you have this model
 
 class ApiService {
   // Ensure this URL matches your live server
@@ -64,13 +65,11 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         _token = data['token'];
-        _user = User.fromJson(data['user']); // Parses branchId now
+        _user = User.fromJson(data['user']);
 
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('jwt_token', _token!);
         await prefs.setString('user_data', jsonEncode(_user!.toJson()));
-
-        // Save role for simple checks if needed
         await prefs.setString('role', _user!.role);
         return true;
       }
@@ -90,12 +89,15 @@ class ApiService {
     await prefs.remove('role');
   }
 
-  // --- Dashboard ---
-  Future<Map<String, dynamic>> getDashboardStats() async {
+  // --- DASHBOARD (Updated with Branch Filter) ---
+  Future<Map<String, dynamic>> getDashboardStats({int? branchId}) async {
     final headers = await _getAuthHeaders();
-    // Backend handles filtering by branchId automatically based on token
+    String query = '';
+    if (branchId != null) {
+      query = '?branchId=$branchId';
+    }
     final response = await http.get(
-      Uri.parse('$_baseUrl/dashboard/stats'),
+      Uri.parse('$_baseUrl/dashboard/stats$query'),
       headers: headers,
     );
     if (response.statusCode == 200) {
@@ -105,7 +107,95 @@ class ApiService {
     }
   }
 
-  // --- Customers ---
+  // --- SEARCH (Fixing missing method error) ---
+  Future<List<dynamic>> search(String query) async {
+    if (query.length < 2) return [];
+    final headers = await _getAuthHeaders();
+    final response = await http.get(
+      Uri.parse('$_baseUrl/search?q=$query'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      return [];
+    }
+  }
+
+  // --- RECENT ACTIVITY (Fixing missing methods error) ---
+  Future<List<dynamic>> getRecentCreatedLoans({int? branchId}) async {
+    final headers = await _getAuthHeaders();
+    String query = branchId != null ? '?branchId=$branchId' : '';
+    final response = await http.get(
+      Uri.parse('$_baseUrl/loans/recent/created$query'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      return [];
+    }
+  }
+
+  Future<List<dynamic>> getRecentClosedLoans({int? branchId}) async {
+    final headers = await _getAuthHeaders();
+    String query = branchId != null ? '?branchId=$branchId' : '';
+    final response = await http.get(
+      Uri.parse('$_baseUrl/loans/recent/closed$query'),
+      headers: headers,
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      return [];
+    }
+  }
+
+  // --- BRANCH MANAGEMENT ---
+  Future<List<Branch>> getBranches() async {
+    final headers = await _getAuthHeaders();
+    final response = await http.get(Uri.parse('$_baseUrl/branches'), headers: headers);
+    if (response.statusCode == 200) {
+      List<dynamic> body = jsonDecode(response.body);
+      return body.map((dynamic item) => Branch.fromJson(item)).toList();
+    } else {
+      throw Exception('Failed to load branches');
+    }
+  }
+
+  Future<void> createBranch(Map<String, dynamic> branchData) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/branches'),
+      headers: headers,
+      body: jsonEncode(branchData),
+    );
+    if (response.statusCode != 201) {
+      throw Exception('Failed to create branch: ${response.body}');
+    }
+  }
+
+  Future<void> updateBranch(int id, Map<String, dynamic> branchData) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.put(
+      Uri.parse('$_baseUrl/branches/$id'),
+      headers: headers,
+      body: jsonEncode(branchData),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update branch: ${response.body}');
+    }
+  }
+
+  Future<void> deleteBranch(int id) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.delete(Uri.parse('$_baseUrl/branches/$id'), headers: headers);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to delete branch');
+    }
+  }
+
+  // --- CUSTOMERS ---
   Future<List<Customer>> getCustomers() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -147,7 +237,6 @@ class ApiService {
     }
   }
 
-  // --- CUSTOMER CREATION ---
   Future<Map<String, dynamic>> addCustomer({
     required String name,
     required String phoneNumber,
@@ -173,7 +262,6 @@ class ApiService {
     if (nomineeName != null && nomineeName.isNotEmpty) request.fields['nominee_name'] = nomineeName;
     if (nomineeRelation != null && nomineeRelation.isNotEmpty) request.fields['nominee_relation'] = nomineeRelation;
 
-    // Backend expects 'photo'
     if (photoFile != null && await photoFile.exists()) {
       request.files.add(await http.MultipartFile.fromPath(
         'photo',
@@ -201,7 +289,6 @@ class ApiService {
     }
   }
 
-  // --- UPDATE CUSTOMER ---
   Future<Map<String, dynamic>> updateCustomer({
     required int id,
     required String name,
@@ -227,7 +314,6 @@ class ApiService {
     if (nomineeName != null) request.fields['nominee_name'] = nomineeName;
     if (nomineeRelation != null) request.fields['nominee_relation'] = nomineeRelation;
 
-    // Backend expects 'photo'
     if (photoFile != null) {
       request.files.add(await http.MultipartFile.fromPath('photo', photoFile.path, contentType: MediaType('image', 'jpeg')));
     }
@@ -292,7 +378,6 @@ class ApiService {
     request.headers['Authorization'] = 'Bearer $token';
     request.fields.addAll(loanData);
 
-    // Backend expects 'itemPhoto'
     if (imageFile != null) {
       request.files.add(
         await http.MultipartFile.fromPath(
@@ -325,7 +410,6 @@ class ApiService {
 
     request.fields.addAll(loanData);
 
-    // Backend expects 'itemPhoto'
     if (imageFile != null) {
       request.files.add(
         await http.MultipartFile.fromPath(
@@ -448,34 +532,40 @@ class ApiService {
     }
   }
 
-  // --- SETTINGS (Smart Fetch with Branch Logic) ---
-  Future<BusinessSettings> getBusinessSettings() async {
+  // --- SETTINGS ---
+  Future<BusinessSettings> getBusinessSettings({int? branchId}) async {
     try {
-      // 1. Fetch Global Settings
       final globalRes = await http.get(Uri.parse('$_baseUrl/settings'));
       if (globalRes.statusCode != 200) throw Exception('Failed to load global settings');
 
       Map<String, dynamic> settingsMap = jsonDecode(globalRes.body);
 
-      // 2. If logged in and has branch, fetch overrides
-      // Ensure user is loaded first
-      if (_user == null) await loadUser();
+      // Determine which branch to load:
+      // 1. Explicit override (from Admin dropdown)
+      // 2. Or User's assigned branch
+      int? targetBranchId = branchId;
 
-      if (_user != null && _user!.branchId != null) {
+      if (targetBranchId == null) {
+        if (_user == null) await loadUser();
+        targetBranchId = _user?.branchId;
+      }
+
+      if (targetBranchId != null) {
         try {
           final token = await _getToken();
           if (token != null) {
             final branchRes = await http.get(
-              Uri.parse('$_baseUrl/branches/${_user!.branchId}'),
+              Uri.parse('$_baseUrl/branches/$targetBranchId'),
               headers: {'Authorization': 'Bearer $token'},
             );
 
             if (branchRes.statusCode == 200) {
               final branchData = jsonDecode(branchRes.body);
-              // Merge branch details (address, phone) into settings map
               settingsMap['address'] = branchData['address'] ?? settingsMap['address'];
               settingsMap['phone_number'] = branchData['phone_number'] ?? settingsMap['phone_number'];
               settingsMap['license_number'] = branchData['license_number'] ?? settingsMap['license_number'];
+              // Note: Branches usually don't have their own logo URL in DB yet,
+              // so it falls back to global logo, which is fine.
             }
           }
         } catch (e) {
@@ -529,7 +619,7 @@ class ApiService {
     }
   }
 
-  // --- Staff Functions ---
+  // --- STAFF ---
   Future<List<User>> getStaff() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -548,6 +638,7 @@ class ApiService {
     required String username,
     required String password,
     String role = 'staff',
+    int? branchId, // <--- NEW PARAMETER
   }) async {
     final headers = await _getAuthHeaders();
     final response = await http.post(
@@ -557,6 +648,7 @@ class ApiService {
         'username': username,
         'password': password,
         'role': role,
+        'branchId': branchId, // <--- Sent to backend
       }),
     );
     if (response.statusCode == 201) {
@@ -712,7 +804,7 @@ class ApiService {
     }
   }
 
-  // --- DayBook ---
+  // --- DAYBOOK ---
   Future<Map<String, dynamic>> getDayBook(String date) async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -723,6 +815,18 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to load Day Book: ${response.body}');
+    }
+  }
+
+  Future<void> updateStaff(int userId, Map<String, dynamic> updates) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.put(
+      Uri.parse('$_baseUrl/users/$userId'),
+      headers: headers,
+      body: jsonEncode(updates),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update user: ${response.body}');
     }
   }
 }
