@@ -1,8 +1,7 @@
-// lib/pages/add_customer_page.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:pledge_loan_mobile/services/api_service.dart';
+import '../services/api_service.dart';
 
 class AddCustomerPage extends StatefulWidget {
   const AddCustomerPage({super.key});
@@ -13,11 +12,11 @@ class AddCustomerPage extends StatefulWidget {
 
 class _AddCustomerPageState extends State<AddCustomerPage> {
   final _formKey = GlobalKey<FormState>();
+
+  // Controllers
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
-
-  // --- NEW KYC CONTROLLERS ---
   final _idTypeController = TextEditingController(text: 'Aadhaar'); // Default
   final _idNumberController = TextEditingController();
   final _nomineeNameController = TextEditingController();
@@ -29,31 +28,65 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
   final ImagePicker _picker = ImagePicker();
 
   Future<void> _pickImage(ImageSource source) async {
-    final pickedFile = await _picker.pickImage(source: source);
-    if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-      });
+    try {
+      final pickedFile = await _picker.pickImage(
+        source: source,
+        imageQuality: 70, // Optimized
+      );
+      if (pickedFile != null) {
+        setState(() {
+          _imageFile = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking image: $e')),
+      );
     }
+  }
+
+  void _showImageSourceActionSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library),
+              title: const Text('Gallery'),
+              onTap: () {
+                _pickImage(ImageSource.gallery);
+                Navigator.of(context).pop();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt),
+              title: const Text('Camera'),
+              onTap: () {
+                _pickImage(ImageSource.camera);
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _submitForm() async {
     if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
+      setState(() => _isLoading = true);
 
       try {
         await _apiService.addCustomer(
           name: _nameController.text,
           phoneNumber: _phoneController.text,
           address: _addressController.text,
-          // --- PASS NEW FIELDS ---
           idProofType: _idTypeController.text,
           idProofNumber: _idNumberController.text,
           nomineeName: _nomineeNameController.text,
           nomineeRelation: _nomineeRelationController.text,
-          photoFile: _imageFile,
+          photoFile: _imageFile, // Passed to API service which handles correct field name
         );
 
         if (mounted) {
@@ -70,9 +103,7 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
         }
       } finally {
         if (mounted) {
-          setState(() {
-            _isLoading = false;
-          });
+          setState(() => _isLoading = false);
         }
       }
     }
@@ -94,50 +125,27 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
               // --- Photo Upload Section ---
               Center(
                 child: GestureDetector(
-                  onTap: () {
-                    showModalBottomSheet(
-                      context: context,
-                      builder: (context) => SafeArea(
-                        child: Wrap(
-                          children: [
-                            ListTile(
-                              leading: const Icon(Icons.photo_library),
-                              title: const Text('Gallery'),
-                              onTap: () {
-                                _pickImage(ImageSource.gallery);
-                                Navigator.of(context).pop();
-                              },
-                            ),
-                            ListTile(
-                              leading: const Icon(Icons.camera_alt),
-                              title: const Text('Camera'),
-                              onTap: () {
-                                _pickImage(ImageSource.camera);
-                                Navigator.of(context).pop();
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                  onTap: () => _showImageSourceActionSheet(context),
                   child: CircleAvatar(
-                    radius: 50,
+                    radius: 60,
                     backgroundColor: Colors.grey[200],
-                    backgroundImage:
-                    _imageFile != null ? FileImage(_imageFile!) : null,
+                    backgroundImage: _imageFile != null ? FileImage(_imageFile!) : null,
                     child: _imageFile == null
-                        ? const Icon(Icons.add_a_photo,
-                        size: 40, color: Colors.grey)
+                        ? const Icon(Icons.add_a_photo, size: 40, color: Colors.grey)
                         : null,
                   ),
                 ),
+              ),
+              const SizedBox(height: 10),
+              const Center(
+                  child: Text("Tap to add photo", style: TextStyle(color: Colors.grey))
               ),
               const SizedBox(height: 20),
 
               // --- BASIC DETAILS ---
               const Text('Basic Information', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
               const SizedBox(height: 10),
+
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(
@@ -145,14 +153,10 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
                   prefixIcon: Icon(Icons.person),
                   border: OutlineInputBorder(),
                 ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a name';
-                  }
-                  return null;
-                },
+                validator: (value) => (value == null || value.isEmpty) ? 'Please enter a name' : null,
               ),
               const SizedBox(height: 16),
+
               TextFormField(
                 controller: _phoneController,
                 decoration: const InputDecoration(
@@ -161,14 +165,10 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
                   border: OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.phone,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter a phone number';
-                  }
-                  return null;
-                },
+                validator: (value) => (value == null || value.isEmpty) ? 'Please enter a phone number' : null,
               ),
               const SizedBox(height: 16),
+
               TextFormField(
                 controller: _addressController,
                 decoration: const InputDecoration(
@@ -184,6 +184,7 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
               // --- KYC SECTION ---
               const Text('KYC & Nominee (Optional)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.indigo)),
               const SizedBox(height: 10),
+
               Row(
                 children: [
                   Expanded(
@@ -208,6 +209,7 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
                 ],
               ),
               const SizedBox(height: 16),
+
               Row(
                 children: [
                   Expanded(
@@ -238,7 +240,7 @@ class _AddCustomerPageState extends State<AddCustomerPage> {
                       foregroundColor: Colors.white),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text('Save Customer', style: TextStyle(fontSize: 18)),
+                      : const Text('SAVE CUSTOMER', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
               ),
             ],

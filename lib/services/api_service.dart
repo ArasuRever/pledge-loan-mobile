@@ -21,9 +21,25 @@ class ApiService {
   // Ensure this URL matches your live server
   final String _baseUrl = 'https://pledge-loan-api-as.onrender.com/api';
 
+  String? _token;
+  User? _user;
+
+  User? get user => _user;
+  String? get token => _token;
+
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('jwt_token');
+    _token = prefs.getString('jwt_token');
+    return _token;
+  }
+
+  Future<void> loadUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    _token = prefs.getString('jwt_token');
+    final userStr = prefs.getString('user_data');
+    if (userStr != null) {
+      _user = User.fromJson(jsonDecode(userStr));
+    }
   }
 
   Future<Map<String, String>> _getAuthHeaders() async {
@@ -37,15 +53,47 @@ class ApiService {
     };
   }
 
+  Future<bool> login(String username, String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$_baseUrl/auth/login'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'username': username, 'password': password}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _token = data['token'];
+        _user = User.fromJson(data['user']); // Parses branchId now
+
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('jwt_token', _token!);
+        await prefs.setString('user_data', jsonEncode(_user!.toJson()));
+
+        // Save role for simple checks if needed
+        await prefs.setString('role', _user!.role);
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print('Login Error: $e');
+      return false;
+    }
+  }
+
   Future<void> logout() async {
+    _token = null;
+    _user = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('jwt_token');
+    await prefs.remove('user_data');
     await prefs.remove('role');
   }
 
   // --- Dashboard ---
   Future<Map<String, dynamic>> getDashboardStats() async {
     final headers = await _getAuthHeaders();
+    // Backend handles filtering by branchId automatically based on token
     final response = await http.get(
       Uri.parse('$_baseUrl/dashboard/stats'),
       headers: headers,
@@ -99,7 +147,7 @@ class ApiService {
     }
   }
 
-  // --- CUSTOMER CREATION (Hardened) ---
+  // --- CUSTOMER CREATION ---
   Future<Map<String, dynamic>> addCustomer({
     required String name,
     required String phoneNumber,
@@ -116,23 +164,21 @@ class ApiService {
     var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/customers'));
     request.headers['Authorization'] = 'Bearer $token';
 
-    // Core Fields - Ensure they are Strings
     request.fields['name'] = name;
     request.fields['phone_number'] = phoneNumber;
     request.fields['address'] = address;
 
-    // Optional Fields - Only add if NOT null and NOT empty
     if (idProofType != null && idProofType.isNotEmpty) request.fields['id_proof_type'] = idProofType;
     if (idProofNumber != null && idProofNumber.isNotEmpty) request.fields['id_proof_number'] = idProofNumber;
     if (nomineeName != null && nomineeName.isNotEmpty) request.fields['nominee_name'] = nomineeName;
     if (nomineeRelation != null && nomineeRelation.isNotEmpty) request.fields['nominee_relation'] = nomineeRelation;
 
-    // Photo Upload
+    // Backend expects 'photo'
     if (photoFile != null && await photoFile.exists()) {
       request.files.add(await http.MultipartFile.fromPath(
         'photo',
         photoFile.path,
-        // Let http package auto-detect content type to be safe
+        contentType: MediaType('image', 'jpeg'),
       ));
     }
 
@@ -143,7 +189,6 @@ class ApiService {
       if (response.statusCode == 201) {
         return jsonDecode(response.body);
       } else {
-        // Parse backend error message
         String msg = 'Failed to add customer';
         try {
           final err = jsonDecode(response.body);
@@ -156,7 +201,7 @@ class ApiService {
     }
   }
 
-  // --- NEW: Update Customer (For Edit Profile) ---
+  // --- UPDATE CUSTOMER ---
   Future<Map<String, dynamic>> updateCustomer({
     required int id,
     required String name,
@@ -182,6 +227,7 @@ class ApiService {
     if (nomineeName != null) request.fields['nominee_name'] = nomineeName;
     if (nomineeRelation != null) request.fields['nominee_relation'] = nomineeRelation;
 
+    // Backend expects 'photo'
     if (photoFile != null) {
       request.files.add(await http.MultipartFile.fromPath('photo', photoFile.path, contentType: MediaType('image', 'jpeg')));
     }
@@ -196,7 +242,7 @@ class ApiService {
     }
   }
 
-  // --- Loans ---
+  // --- LOANS ---
   Future<List<Loan>> getLoans() async {
     final headers = await _getAuthHeaders();
     final response = await http.get(
@@ -238,13 +284,15 @@ class ApiService {
     }
   }
 
-  // Note: loanData Map should now include 'gross_weight', 'net_weight', 'purity', 'appraised_value'
   Future<Map<String, dynamic>> createLoan({required Map<String, String> loanData, File? imageFile}) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
+
     var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/loans'));
     request.headers['Authorization'] = 'Bearer $token';
     request.fields.addAll(loanData);
+
+    // Backend expects 'itemPhoto'
     if (imageFile != null) {
       request.files.add(
         await http.MultipartFile.fromPath(
@@ -254,6 +302,7 @@ class ApiService {
         ),
       );
     }
+
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
     if (response.statusCode == 201) {
@@ -263,12 +312,10 @@ class ApiService {
     }
   }
 
-  //
-  // Updated to support Image Upload on Edit
   Future<Map<String, dynamic>> updateLoan({
     required int loanId,
     required Map<String, String> loanData,
-    File? imageFile, // <--- Added parameter
+    File? imageFile,
   }) async {
     final token = await _getToken();
     if (token == null) throw Exception('Not authenticated');
@@ -276,14 +323,13 @@ class ApiService {
     var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/loans/$loanId'));
     request.headers['Authorization'] = 'Bearer $token';
 
-    // Add text fields
     request.fields.addAll(loanData);
 
-    // Add file if provided
+    // Backend expects 'itemPhoto'
     if (imageFile != null) {
       request.files.add(
         await http.MultipartFile.fromPath(
-          'itemPhoto', // Must match backend field name
+          'itemPhoto',
           imageFile.path,
           contentType: MediaType('image', 'jpeg'),
         ),
@@ -300,7 +346,7 @@ class ApiService {
     }
   }
 
-  // --- Transactions / Actions ---
+  // --- TRANSACTIONS ---
   Future<List<dynamic>> addPayment({
     required int loanId,
     required String amount,
@@ -326,7 +372,7 @@ class ApiService {
   Future<Map<String, dynamic>> settleLoan({
     required int loanId,
     String? discountAmount,
-    String? settlementAmount, // <--- Added Parameter
+    String? settlementAmount,
   }) async {
     final headers = await _getAuthHeaders();
     final response = await http.post(
@@ -334,7 +380,7 @@ class ApiService {
       headers: headers,
       body: jsonEncode({
         'discountAmount': discountAmount ?? '0',
-        'settlementAmount': settlementAmount ?? '0', // <--- Pass to Backend
+        'settlementAmount': settlementAmount ?? '0',
       }),
     );
     if (response.statusCode == 200) {
@@ -349,7 +395,6 @@ class ApiService {
     }
   }
 
-  // - Add this method
   Future<Map<String, dynamic>> renewLoan({
     required int oldLoanId,
     required String interestPaid,
@@ -370,7 +415,6 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      // Handle specific backend errors (like "New Book Loan Number already exists")
       String msg = 'Failed to renew loan.';
       try {
         final body = jsonDecode(response.body);
@@ -404,6 +448,87 @@ class ApiService {
     }
   }
 
+  // --- SETTINGS (Smart Fetch with Branch Logic) ---
+  Future<BusinessSettings> getBusinessSettings() async {
+    try {
+      // 1. Fetch Global Settings
+      final globalRes = await http.get(Uri.parse('$_baseUrl/settings'));
+      if (globalRes.statusCode != 200) throw Exception('Failed to load global settings');
+
+      Map<String, dynamic> settingsMap = jsonDecode(globalRes.body);
+
+      // 2. If logged in and has branch, fetch overrides
+      // Ensure user is loaded first
+      if (_user == null) await loadUser();
+
+      if (_user != null && _user!.branchId != null) {
+        try {
+          final token = await _getToken();
+          if (token != null) {
+            final branchRes = await http.get(
+              Uri.parse('$_baseUrl/branches/${_user!.branchId}'),
+              headers: {'Authorization': 'Bearer $token'},
+            );
+
+            if (branchRes.statusCode == 200) {
+              final branchData = jsonDecode(branchRes.body);
+              // Merge branch details (address, phone) into settings map
+              settingsMap['address'] = branchData['address'] ?? settingsMap['address'];
+              settingsMap['phone_number'] = branchData['phone_number'] ?? settingsMap['phone_number'];
+              settingsMap['license_number'] = branchData['license_number'] ?? settingsMap['license_number'];
+            }
+          }
+        } catch (e) {
+          print('Branch settings fetch failed: $e');
+        }
+      }
+
+      return BusinessSettings.fromJson(settingsMap);
+    } catch (e) {
+      throw Exception('Failed to load settings: $e');
+    }
+  }
+
+  Future<BusinessSettings> updateBusinessSettings({
+    required String businessName,
+    required String address,
+    required String phoneNumber,
+    required String licenseNumber,
+    File? logoFile,
+    String? existingLogoUrl,
+  }) async {
+    final token = await _getToken();
+    if (token == null) throw Exception('Not authenticated');
+
+    var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/settings'));
+    request.headers['Authorization'] = 'Bearer $token';
+
+    request.fields['business_name'] = businessName;
+    request.fields['address'] = address;
+    request.fields['phone_number'] = phoneNumber;
+    request.fields['license_number'] = licenseNumber;
+    if (existingLogoUrl != null) {
+      request.fields['existingLogoUrl'] = existingLogoUrl;
+    }
+
+    if (logoFile != null) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'logo',
+        logoFile.path,
+        contentType: MediaType('image', 'jpeg'),
+      ));
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode == 200) {
+      return BusinessSettings.fromJson(jsonDecode(response.body));
+    } else {
+      throw Exception('Failed to update settings: ${response.body}');
+    }
+  }
+
   // --- Staff Functions ---
   Future<List<User>> getStaff() async {
     final headers = await _getAuthHeaders();
@@ -419,7 +544,6 @@ class ApiService {
     }
   }
 
-  // Updated to support generic 'create' with roles
   Future<Map<String, dynamic>> createStaff({
     required String username,
     required String password,
@@ -427,7 +551,7 @@ class ApiService {
   }) async {
     final headers = await _getAuthHeaders();
     final response = await http.post(
-      Uri.parse('$_baseUrl/users/create'), // Changed from /staff to /create
+      Uri.parse('$_baseUrl/users/create'),
       headers: headers,
       body: jsonEncode({
         'username': username,
@@ -545,7 +669,6 @@ class ApiService {
     }
   }
 
-  // --- PERMANENT DELETE ---
   Future<Map<String, dynamic>> permanentDeleteCustomer(int customerId) async {
     final headers = await _getAuthHeaders();
     final response = await http.delete(
@@ -600,58 +723,6 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to load Day Book: ${response.body}');
-    }
-  }
-
-  Future<BusinessSettings> getBusinessSettings() async {
-    // Note: We don't use _getAuthHeaders because this might be called before login
-    final response = await http.get(Uri.parse('$_baseUrl/settings'));
-
-    if (response.statusCode == 200) {
-      return BusinessSettings.fromJson(jsonDecode(response.body));
-    } else {
-      throw Exception('Failed to load settings');
-    }
-  }
-
-  // 2. Update Settings (Admin Only)
-  Future<BusinessSettings> updateBusinessSettings({
-    required String businessName,
-    required String address,
-    required String phoneNumber, // Combined string of up to 3 numbers
-    required String licenseNumber,
-    File? logoFile,
-    String? existingLogoUrl,
-  }) async {
-    final token = await _getToken();
-    if (token == null) throw Exception('Not authenticated');
-
-    var request = http.MultipartRequest('PUT', Uri.parse('$_baseUrl/settings'));
-    request.headers['Authorization'] = 'Bearer $token';
-
-    request.fields['business_name'] = businessName;
-    request.fields['address'] = address;
-    request.fields['phone_number'] = phoneNumber;
-    request.fields['license_number'] = licenseNumber;
-    if (existingLogoUrl != null) {
-      request.fields['existingLogoUrl'] = existingLogoUrl;
-    }
-
-    if (logoFile != null) {
-      request.files.add(await http.MultipartFile.fromPath(
-        'logo', // Matches backend field name
-        logoFile.path,
-        contentType: MediaType('image', 'jpeg'), // Or png, detected auto usually
-      ));
-    }
-
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
-
-    if (response.statusCode == 200) {
-      return BusinessSettings.fromJson(jsonDecode(response.body));
-    } else {
-      throw Exception('Failed to update settings: ${response.body}');
     }
   }
 }

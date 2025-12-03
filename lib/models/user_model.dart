@@ -1,8 +1,8 @@
 class User {
   final int id;
   final String username;
-  final String role; // 'admin', 'manager', 'staff'
-  final int? branchId; // New field
+  final String role;
+  final int? branchId; // Added branchId
 
   User({
     required this.id,
@@ -16,8 +16,7 @@ class User {
       id: json['id'],
       username: json['username'],
       role: json['role'],
-      // Handle case where branchId might be null or missing
-      branchId: json['branchId'],
+      branchId: json['branchId'], // Map from JSON
     );
   }
 
