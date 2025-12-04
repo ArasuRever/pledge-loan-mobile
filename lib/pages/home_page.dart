@@ -22,70 +22,34 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final ApiService _apiService = ApiService();
   String? _userRole;
-  bool _isLoadingRole = true;
+  bool _isLoadingUserData = true; // Wait for role before showing UI
 
   // Branch Switching State
   List<Branch> _branches = [];
-  int? _selectedBranchId; // Null = All Branches
-  String _selectedBranchName = "All Branches";
+  int? _selectedBranchId; // Null = All Branches (Admin only)
+  String _selectedBranchName = "Loading...";
 
   late Future<Map<String, dynamic>> _statsFuture;
   late Future<BusinessSettings> _settingsFuture;
   late Future<List<dynamic>> _recentCreatedFuture;
   late Future<List<dynamic>> _recentClosedFuture;
 
-  // --- ROLE HELPERS ---
   bool get isAdmin => _userRole?.toLowerCase() == 'admin';
   bool get isManager => _userRole?.toLowerCase() == 'manager';
 
   @override
   void initState() {
     super.initState();
-    _initializeFutures();
-    _loadSavedBranch();
-    _loadInitData();
+    // Start by loading user data, THEN fetch stats
+    _loadUserAndInit();
   }
 
-  Future<void> _loadSavedBranch() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.containsKey('current_branch_view')) {
-      if (mounted) {
-        setState(() {
-          _selectedBranchId = prefs.getInt('current_branch_view');
-          _selectedBranchName = prefs.getString('current_branch_name') ?? "Branch";
-          _initializeFutures();
-        });
-      }
-    }
-  }
-
-  void _initializeFutures() {
-    _statsFuture = _apiService.getDashboardStats(branchId: _selectedBranchId);
-    _settingsFuture = _apiService.getBusinessSettings(branchId: _selectedBranchId);
-    _recentCreatedFuture = _apiService.getRecentCreatedLoans(branchId: _selectedBranchId);
-    _recentClosedFuture = _apiService.getRecentClosedLoans(branchId: _selectedBranchId);
-  }
-
-  Future<void> _loadInitData() async {
-    await _loadUserRole();
-    if (isAdmin) {
-      try {
-        final branches = await _apiService.getBranches();
-        if (mounted) setState(() => _branches = branches);
-      } catch (e) {
-        print("Error loading branches: $e");
-      }
-    }
-  }
-
-  Future<void> _loadUserRole() async {
+  Future<void> _loadUserAndInit() async {
     final prefs = await SharedPreferences.getInstance();
 
-    // --- ROBUST LOADING ---
     String? rawRole = prefs.getString('role');
     String? safeRole = rawRole?.toLowerCase().trim();
 
-    // --- MANAGER BRANCH INFO ---
     String? managerBranchName;
     int? managerBranchId;
 
@@ -111,21 +75,49 @@ class _HomePageState extends State<HomePage> {
     if (mounted) {
       setState(() {
         _userRole = safeRole;
-        _isLoadingRole = false; // Mark loading done
 
-        // IF MANAGER: Enforce Branch
-        if (isManager) {
-          if (managerBranchName != null && managerBranchName!.isNotEmpty) {
+        if (isAdmin) {
+          _selectedBranchName = "All Branches";
+          _loadAdminBranches();
+        }
+        else if (isManager) {
+          // Force Manager Context
+          if (managerBranchName != null) {
             _selectedBranchName = managerBranchName!;
+          } else {
+            _selectedBranchName = "My Branch";
           }
-          // Note: Even if ID is null, backend handles it via user token.
-          // But if we have the ID, we set it to be explicit.
+
           if (managerBranchId != null) {
             _selectedBranchId = managerBranchId;
-            _initializeFutures(); // Refresh with scoped ID
           }
+        } else {
+          // Staff or others
+          _selectedBranchName = managerBranchName ?? "Branch";
         }
+
+        // Initialize futures AFTER setting the branch ID
+        _initializeFutures();
+        _isLoadingUserData = false; // Reveal UI
       });
+    }
+  }
+
+  void _initializeFutures() {
+    // If Manager, _selectedBranchId is set above.
+    // If Admin, it's null (All) or specific.
+    _statsFuture = _apiService.getDashboardStats(branchId: _selectedBranchId);
+    _settingsFuture = _apiService.getBusinessSettings(branchId: _selectedBranchId);
+    _recentCreatedFuture = _apiService.getRecentCreatedLoans(branchId: _selectedBranchId);
+    _recentClosedFuture = _apiService.getRecentClosedLoans(branchId: _selectedBranchId);
+  }
+
+  Future<void> _loadAdminBranches() async {
+    try {
+      final branches = await _apiService.getBranches();
+      if (mounted) setState(() => _branches = branches);
+    } catch (e) {
+      print("Error loading branches: $e");
     }
   }
 
@@ -157,6 +149,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _showBranchSelector() {
+    if (!isAdmin) return;
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -172,10 +165,6 @@ class _HomePageState extends State<HomePage> {
               title: const Text("All Branches"),
               trailing: _selectedBranchId == null ? const Icon(Icons.check_circle, color: Colors.green) : null,
               onTap: () async {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.remove('current_branch_view');
-                await prefs.setString('current_branch_name', "All Branches");
-
                 setState(() {
                   _selectedBranchId = null;
                   _selectedBranchName = "All Branches";
@@ -195,10 +184,6 @@ class _HomePageState extends State<HomePage> {
                     title: Text(b.branchName),
                     trailing: _selectedBranchId == b.id ? const Icon(Icons.check_circle, color: Colors.green) : null,
                     onTap: () async {
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setInt('current_branch_view', b.id);
-                      await prefs.setString('current_branch_name', b.branchName);
-
                       setState(() {
                         _selectedBranchId = b.id;
                         _selectedBranchName = b.branchName;
@@ -218,6 +203,13 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingUserData) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF0F2F5),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF0F2F5),
       appBar: AppBar(
@@ -227,10 +219,10 @@ class _HomePageState extends State<HomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text('Dashboard', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w800, fontSize: 24)),
-            // --- DEBUG TAG TO CONFIRM ROLE ---
+            // Debug Role Display
             if (_userRole != null)
               Text(
-                "Role: ${_userRole!.toUpperCase()} | ${_selectedBranchName}",
+                "${_userRole!.toUpperCase()} @ $_selectedBranchName",
                 style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
               ),
           ],
@@ -247,9 +239,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: _isLoadingRole
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
+      body: RefreshIndicator(
         onRefresh: _refreshAll,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -257,65 +247,23 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- ADMIN BRANCH SELECTOR ---
+              // --- BRANCH HEADER ---
               if (isAdmin && _branches.isNotEmpty)
                 Center(
                   child: GestureDetector(
                     onTap: _showBranchSelector,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                      margin: const EdgeInsets.only(bottom: 20),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(30),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
-                        border: Border.all(color: Colors.indigo.shade100),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.location_on, color: Colors.indigo.shade700, size: 16),
-                          const SizedBox(width: 8),
-                          Text(_selectedBranchName, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo.shade700, fontSize: 13)),
-                          const SizedBox(width: 8),
-                          Icon(Icons.keyboard_arrow_down, color: Colors.indigo.shade700, size: 16),
-                        ],
-                      ),
-                    ),
+                    child: _buildBranchPill(true),
                   ),
                 )
-              // --- MANAGER BRANCH BADGE ---
-              else if (isManager)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    margin: const EdgeInsets.only(bottom: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.indigo.shade50,
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: Colors.indigo.shade200),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.store, color: Colors.indigo.shade700, size: 16),
-                        const SizedBox(width: 8),
-                        Text(_selectedBranchName, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo.shade700, fontSize: 13)),
-                      ],
-                    ),
-                  ),
-                ),
+              else
+                Center(child: _buildBranchPill(false)),
 
               // BUSINESS INFO
               FutureBuilder<BusinessSettings>(
                 future: _settingsFuture,
                 builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const SizedBox(height: 50);
-                  }
-                  if (snapshot.hasError) {
-                    return const SizedBox();
-                  }
+                  if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox(height: 50);
+                  if (snapshot.hasError) return const SizedBox();
                   final s = snapshot.data!;
                   return Container(
                     margin: const EdgeInsets.only(bottom: 24),
@@ -428,6 +376,31 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildBranchPill(bool isInteractive) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      margin: const EdgeInsets.only(bottom: 20),
+      decoration: BoxDecoration(
+        color: isInteractive ? Colors.white : Colors.indigo.shade50,
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: isInteractive ? [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))] : [],
+        border: Border.all(color: Colors.indigo.shade100),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(isInteractive ? Icons.location_on : Icons.store, color: Colors.indigo.shade700, size: 16),
+          const SizedBox(width: 8),
+          Text(_selectedBranchName, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo.shade700, fontSize: 13)),
+          if (isInteractive) ...[
+            const SizedBox(width: 8),
+            Icon(Icons.keyboard_arrow_down, color: Colors.indigo.shade700, size: 16),
+          ]
+        ],
+      ),
+    );
+  }
+
   Widget _buildHeroCard(Map<String, dynamic> stats) {
     final totalPrincipal = num.tryParse(stats['totalPrincipalOut']?.toString() ?? '0') ?? 0.0;
     final totalInterestAccrued = num.tryParse(stats['totalInterestAccrued']?.toString() ?? '0') ?? 0.0;
@@ -525,7 +498,9 @@ class _HomePageState extends State<HomePage> {
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       onTap: () {
-        Navigator.push(context, MaterialPageRoute(builder: (c) => LoanDetailPage(loanId: loan['id'])));
+        if (loan['id'] != null) {
+          Navigator.push(context, MaterialPageRoute(builder: (c) => LoanDetailPage(loanId: loan['id'])));
+        }
       },
       leading: Container(width: 45, height: 45, decoration: BoxDecoration(color: themeColor.withOpacity(0.1), shape: BoxShape.circle), alignment: Alignment.center, child: Text(_getInitials(customerName), style: TextStyle(color: themeColor, fontWeight: FontWeight.bold, fontSize: 16))),
       title: Text(customerName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.black87)),
@@ -544,8 +519,10 @@ class _HomePageState extends State<HomePage> {
       childAspectRatio: 1.1,
       children: [
         _ActionBtn(label: "Day Book", icon: Icons.menu_book, color: Colors.purple, onTap: () => _nav(const DayBookPage())),
-        // --- FIX: Explicit check for Admin OR Manager ---
-        if (isAdmin || isManager) _ActionBtn(label: "Reports", icon: Icons.bar_chart, color: Colors.teal, onTap: () => _nav(const ReportsPage())),
+
+        // --- FIX: Show Reports for Manager ---
+        if (isAdmin || isManager)
+          _ActionBtn(label: "Reports", icon: Icons.bar_chart, color: Colors.teal, onTap: () => _nav(const ReportsPage())),
 
         if (isAdmin) ...[
           _ActionBtn(label: "Staff", icon: Icons.people, color: Colors.orange, onTap: () => _nav(const ManageStaffPage())),

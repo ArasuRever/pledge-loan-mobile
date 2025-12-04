@@ -37,20 +37,22 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
     if (token != null) {
       try {
         if (Jwt.isExpired(token)) {
-          await prefs.remove('jwt_token');
-          await prefs.remove('role');
-          await prefs.remove('user_data');
+          await _logout(prefs);
           return null;
         }
         return token;
       } catch (e) {
-        await prefs.remove('jwt_token');
-        await prefs.remove('role');
-        await prefs.remove('user_data');
+        await _logout(prefs);
         return null;
       }
     }
     return null;
+  }
+
+  Future<void> _logout(SharedPreferences prefs) async {
+    await prefs.remove('jwt_token');
+    await prefs.remove('role');
+    await prefs.remove('user_data');
   }
 
   void _onStateChange() {
@@ -117,9 +119,7 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
           if (snapshot.hasData && snapshot.data != null) {
             return MainScaffold(onLogout: () async {
               SharedPreferences prefs = await SharedPreferences.getInstance();
-              await prefs.remove('jwt_token');
-              await prefs.remove('role');
-              await prefs.remove('user_data');
+              await _logout(prefs);
               _onStateChange();
             });
           }
@@ -139,8 +139,6 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  // Rename variable for clarity: true = Admin/Manager, false = Staff
-  bool _isManagement = true;
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
@@ -197,36 +195,20 @@ class _LoginPageState extends State<LoginPage> {
           setState(() => _message = 'Login Failed: Missing user data.'); return;
         }
 
-        // --- FIX: Normalize Role to Lowercase ---
+        // --- UNIFIED LOGIN LOGIC ---
+        // We accept ALL valid roles returned by the backend.
+        // We trust the backend to validate credentials.
         final String rawRole = responseData['user']['role'];
         final String actualRole = rawRole.toLowerCase().trim();
 
-        // --- AUTH LOGIC ---
-        bool isAuthorized = false;
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString('jwt_token', token);
+        await prefs.setString('role', actualRole);
 
-        if (_isManagement) {
-          // Allow BOTH Admin and Manager when "Management" toggle is selected
-          if (actualRole == 'admin' || actualRole == 'manager') {
-            isAuthorized = true;
-          }
-        } else {
-          // Staff toggle allows ONLY Staff
-          if (actualRole == 'staff') {
-            isAuthorized = true;
-          }
-        }
+        // Save user data so Home Page can find branch info
+        await prefs.setString('user_data', jsonEncode(responseData['user']));
 
-        if (isAuthorized) {
-          SharedPreferences prefs = await SharedPreferences.getInstance();
-          await prefs.setString('jwt_token', token);
-          await prefs.setString('role', actualRole); // Save normalized role
-          await prefs.setString('user_data', jsonEncode(responseData['user']));
-
-          widget.onLoginSuccess();
-        } else {
-          String expectedLabel = _isManagement ? 'Admin/Manager' : 'Staff';
-          setState(() => _message = 'Login Failed: You are not authorized as $expectedLabel.');
-        }
+        widget.onLoginSuccess();
       } else {
         setState(() => _message = responseData['message'] ?? responseData['error'] ?? 'Invalid credentials.');
       }
@@ -276,18 +258,9 @@ class _LoginPageState extends State<LoginPage> {
                     _branding != null ? 'Welcome Back' : 'Secure Loan Management',
                     style: TextStyle(color: Colors.grey[600])
                 ),
-                const SizedBox(height: 40.0),
+                const SizedBox(height: 48.0),
 
-                // --- NEW ROLE TOGGLE ---
-                Container(
-                  decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
-                  padding: const EdgeInsets.all(4),
-                  child: Row(children: [
-                    _buildRoleButton("Management", true), // Changed text from Admin to Management
-                    _buildRoleButton("Staff", false),
-                  ]),
-                ),
-                const SizedBox(height: 24.0),
+                // --- TOGGLE REMOVED ---
 
                 TextField(
                   controller: _usernameController,
@@ -321,32 +294,6 @@ class _LoginPageState extends State<LoginPage> {
                     child: Text(_message, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
                   ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoleButton(String label, bool isForManagement) {
-    final isSelected = _isManagement == isForManagement;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => setState(() => _isManagement = isForManagement),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected ? Theme.of(context).primaryColor : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            boxShadow: isSelected ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)] : [],
-          ),
-          child: Center(
-            child: Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: isSelected ? Colors.white : Colors.grey[600],
-              ),
             ),
           ),
         ),

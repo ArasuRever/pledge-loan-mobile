@@ -9,7 +9,7 @@ import 'package:pledge_loan_mobile/pages/all_loans_page.dart';
 import 'package:pledge_loan_mobile/pages/add_customer_page.dart';
 import 'package:pledge_loan_mobile/pages/recycle_bin_page.dart';
 import 'package:pledge_loan_mobile/pages/reports_page.dart';
-import 'package:pledge_loan_mobile/pages/business_settings_page.dart'; // <--- IMPORT NEW PAGE
+import 'package:pledge_loan_mobile/pages/business_settings_page.dart';
 
 class MainScaffold extends StatefulWidget {
   final VoidCallback onLogout;
@@ -29,6 +29,10 @@ class _MainScaffoldState extends State<MainScaffold> {
   List<Widget> _widgetOptions = [];
   List<BottomNavigationBarItem> _navBarItems = [];
 
+  // Getters for role checks
+  bool get isAdmin => _userRole == 'admin';
+  bool get isManager => _userRole == 'manager';
+
   @override
   void initState() {
     super.initState();
@@ -37,18 +41,22 @@ class _MainScaffoldState extends State<MainScaffold> {
 
   Future<void> _loadRoleAndBuildUI() async {
     final prefs = await SharedPreferences.getInstance();
-    final role = prefs.getString('role');
+    // Normalize role string to prevent mismatch (e.g. "Manager" vs "manager")
+    final rawRole = prefs.getString('role');
+    final role = rawRole?.toLowerCase().trim();
 
     if (role == null) {
       widget.onLogout();
       return;
     }
 
-    if (role == 'admin') {
-      setState(() {
-        _userRole = 'admin';
+    setState(() {
+      _userRole = role;
+
+      // FIX: Allow BOTH Admin AND Manager to see the Dashboard view
+      if (isAdmin || isManager) {
         _widgetOptions = [
-          const HomePage(),
+          const HomePage(), // Dashboard
           CustomersPage(key: _customerPageKey),
           const NewLoanWorkflowPage(),
           const AllLoansPage(),
@@ -60,14 +68,11 @@ class _MainScaffoldState extends State<MainScaffold> {
               icon: Icon(Icons.people), label: 'Customers'),
           const BottomNavigationBarItem(
               icon: Icon(Icons.add_circle), label: 'New Loan'),
-          const BottomNavigationBarItem(icon: Icon(Icons.list), label: 'All Loans'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.list), label: 'All Loans'),
         ];
-        _selectedIndex = 0;
-        _isLoading = false;
-      });
-    } else {
-      setState(() {
-        _userRole = 'staff';
+      } else {
+        // Staff View (No Dashboard)
         _widgetOptions = [
           CustomersPage(key: _customerPageKey),
           const NewLoanWorkflowPage(),
@@ -78,12 +83,14 @@ class _MainScaffoldState extends State<MainScaffold> {
               icon: Icon(Icons.people), label: 'Customers'),
           const BottomNavigationBarItem(
               icon: Icon(Icons.add_circle), label: 'New Loan'),
-          const BottomNavigationBarItem(icon: Icon(Icons.list), label: 'All Loans'),
+          const BottomNavigationBarItem(
+              icon: Icon(Icons.list), label: 'All Loans'),
         ];
-        _selectedIndex = 0;
-        _isLoading = false;
-      });
-    }
+      }
+
+      _selectedIndex = 0;
+      _isLoading = false;
+    });
   }
 
   void _onItemTapped(int index) {
@@ -101,12 +108,14 @@ class _MainScaffoldState extends State<MainScaffold> {
       Navigator.of(context).push(MaterialPageRoute(builder: (context) => const RecycleBinPage()));
     } else if (value == 'reports') {
       Navigator.of(context).push(MaterialPageRoute(builder: (context) => const ReportsPage()));
-    } else if (value == 'settings') { // <--- NEW SETTINGS HANDLER
+    } else if (value == 'settings') {
       Navigator.of(context).push(MaterialPageRoute(builder: (context) => const BusinessSettingsPage()));
     }
   }
 
   Widget? _getFloatingActionButton() {
+    if (_navBarItems.isEmpty) return null;
+
     String currentTabLabel = _navBarItems[_selectedIndex].label!;
 
     if (currentTabLabel == 'Customers') {
@@ -142,13 +151,20 @@ class _MainScaffoldState extends State<MainScaffold> {
           PopupMenuButton<String>(
             onSelected: _onMenuSelected,
             itemBuilder: (context) => [
-              if (_userRole == 'admin') ...[
+              // 1. Admin Only Items
+              if (isAdmin) ...[
                 const PopupMenuItem(value: 'manage_staff', child: Row(children: [Icon(Icons.people, color: Colors.grey), SizedBox(width: 8), Text('Manage Staff')])),
-                const PopupMenuItem(value: 'recycle_bin', child: Row(children: [Icon(Icons.delete, color: Colors.grey), SizedBox(width: 8), Text('Recycle Bin')])),
+                const PopupMenuItem(value: 'settings', child: Row(children: [Icon(Icons.settings, color: Colors.grey), SizedBox(width: 8), Text('Business Settings')])),
+              ],
+
+              // 2. Admin AND Manager Items (FIX: Added Manager check here)
+              if (isAdmin || isManager) ...[
                 const PopupMenuItem(value: 'reports', child: Row(children: [Icon(Icons.bar_chart, color: Colors.grey), SizedBox(width: 8), Text('Financial Reports')])),
-                const PopupMenuItem(value: 'settings', child: Row(children: [Icon(Icons.settings, color: Colors.grey), SizedBox(width: 8), Text('Business Settings')])), // <--- NEW MENU ITEM
+                const PopupMenuItem(value: 'recycle_bin', child: Row(children: [Icon(Icons.delete, color: Colors.grey), SizedBox(width: 8), Text('Recycle Bin')])),
                 const PopupMenuDivider(),
               ],
+
+              // 3. All Users
               const PopupMenuItem(value: 'logout', child: Row(children: [Icon(Icons.logout, color: Colors.grey), SizedBox(width: 8), Text('Logout')])),
             ],
           ),
