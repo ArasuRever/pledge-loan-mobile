@@ -4,13 +4,9 @@ import 'package:pledge_loan_mobile/services/api_service.dart';
 
 class AddPaymentDialog extends StatefulWidget {
   final int loanId;
-  final VoidCallback onSuccess; // This function will be called on success
+  final VoidCallback onSuccess;
 
-  const AddPaymentDialog({
-    super.key,
-    required this.loanId,
-    required this.onSuccess,
-  });
+  const AddPaymentDialog({super.key, required this.loanId, required this.onSuccess});
 
   @override
   State<AddPaymentDialog> createState() => _AddPaymentDialogState();
@@ -20,134 +16,120 @@ class _AddPaymentDialogState extends State<AddPaymentDialog> {
   final _formKey = GlobalKey<FormState>();
   final _apiService = ApiService();
   final _amountController = TextEditingController();
-  // final _detailsController = TextEditingController(); // <-- FIX: Removed
 
-  String _paymentType = 'interest'; // Default payment type
+  String _paymentType = 'interest';
   bool _isLoading = false;
   String? _errorMessage;
 
   Future<void> _submitPayment() async {
-    if (!_formKey.currentState!.validate()) {
-      return; // Form is invalid
-    }
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    if (!_formKey.currentState!.validate()) return;
+    setState(() { _isLoading = true; _errorMessage = null; });
 
     try {
-      // --- FIX: Removed the 'details' parameter ---
       await _apiService.addPayment(
         loanId: widget.loanId,
         amount: _amountController.text,
         paymentType: _paymentType,
       );
-
       if (mounted) {
-        Navigator.of(context).pop(); // Close the dialog on success
-        widget.onSuccess(); // Call the refresh function
+        Navigator.of(context).pop();
+        widget.onSuccess();
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString();
-      });
+      setState(() => _errorMessage = e.toString());
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
-  void dispose() {
-    _amountController.dispose();
-    // _detailsController.dispose(); // <-- FIX: Removed
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Add Payment'),
-      content: Form(
-        key: _formKey,
-        child: SingleChildScrollView(
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Form(
+          key: _formKey,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Payment Type Radio Buttons
+              const Text("Add Payment", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 20),
+
+              // TYPE SELECTION ROW
               Row(
                 children: [
-                  Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('Interest'),
-                      value: 'interest',
-                      groupValue: _paymentType,
-                      onChanged: (value) => setState(() => _paymentType = value!),
-                    ),
-                  ),
-                  Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('Principal'),
-                      value: 'principal',
-                      groupValue: _paymentType,
-                      onChanged: (value) => setState(() => _paymentType = value!),
-                    ),
-                  ),
+                  Expanded(child: _buildTypeCard('interest', 'Interest', Icons.timelapse)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildTypeCard('principal', 'Principal', Icons.account_balance_wallet)),
                 ],
               ),
-              const SizedBox(height: 16),
-              // Amount Field
+              const SizedBox(height: 24),
+
+              // AMOUNT INPUT
               TextFormField(
                 controller: _amountController,
-                decoration: const InputDecoration(
-                  labelText: 'Amount (₹)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.currency_rupee),
-                ),
                 keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter an amount';
-                  }
-                  if (double.tryParse(value) == null || double.parse(value) <= 0) {
-                    return 'Please enter a valid amount';
-                  }
-                  return null;
-                },
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                textAlign: TextAlign.center,
+                decoration: InputDecoration(
+                  prefixText: '₹ ',
+                  hintText: '0',
+                  filled: true,
+                  fillColor: Colors.grey[100],
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                validator: (val) => (val == null || val.isEmpty || double.tryParse(val) == null) ? 'Enter valid amount' : null,
               ),
-              // --- FIX: Removed Details Field ---
 
               if (_errorMessage != null) ...[
                 const SizedBox(height: 16),
-                Text(
-                  _errorMessage!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
+                Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13), textAlign: TextAlign.center),
               ],
+
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isLoading ? null : _submitPayment,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[800],
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text("CONFIRM PAYMENT", style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ),
             ],
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _isLoading ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+    );
+  }
+
+  Widget _buildTypeCard(String value, String label, IconData icon) {
+    final isSelected = _paymentType == value;
+    return GestureDetector(
+      onTap: () => setState(() => _paymentType = value),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.blue[50] : Colors.white,
+          border: Border.all(color: isSelected ? Colors.blue : Colors.grey.shade300, width: isSelected ? 2 : 1),
+          borderRadius: BorderRadius.circular(12),
         ),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _submitPayment,
-          child: _isLoading
-              ? const SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-          )
-              : const Text('Submit'),
+        child: Column(
+          children: [
+            Icon(icon, color: isSelected ? Colors.blue : Colors.grey),
+            const SizedBox(height: 8),
+            Text(label, style: TextStyle(fontWeight: FontWeight.bold, color: isSelected ? Colors.blue[800] : Colors.grey)),
+          ],
         ),
-      ],
+      ),
     );
   }
 }

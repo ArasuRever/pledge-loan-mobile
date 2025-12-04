@@ -37,14 +37,11 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    // 1. CRITICAL FIX: Initialize futures IMMEDIATELY with default (null/All)
-    // This prevents the red screen because variables are assigned before build() runs.
+    // 1. Initialize futures IMMEDIATELY with defaults to prevent "Red Screen"
     _initializeFutures();
 
-    // 2. Then load the saved preference in the background and refresh
+    // 2. Load saved branch preference and user role in background
     _loadSavedBranch();
-
-    // 3. Load user role/data
     _loadInitData();
   }
 
@@ -55,7 +52,7 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _selectedBranchId = prefs.getInt('current_branch_view');
           _selectedBranchName = prefs.getString('current_branch_name') ?? "Branch";
-          // Re-initialize with the loaded ID
+          // Re-fetch data for the specific branch
           _initializeFutures();
         });
       }
@@ -201,6 +198,7 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // BRANCH SELECTOR
               if (_userRole == 'admin' && _branches.isNotEmpty)
                 Center(
                   child: GestureDetector(
@@ -228,14 +226,15 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
 
+              // BUSINESS INFO
               FutureBuilder<BusinessSettings>(
                 future: _settingsFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const SizedBox(height: 50); // Silent loading for smoother UX
+                    return const SizedBox(height: 50);
                   }
                   if (snapshot.hasError) {
-                    return const SizedBox(); // Hide header on error
+                    return const SizedBox();
                   }
                   final s = snapshot.data!;
                   return Container(
@@ -273,6 +272,7 @@ class _HomePageState extends State<HomePage> {
                 },
               ),
 
+              // HERO CARD
               FutureBuilder<Map<String, dynamic>>(
                 future: _statsFuture,
                 builder: (context, snapshot) {
@@ -299,6 +299,7 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 10),
 
+              // RECENT ACTIVITY WITH PILL TOGGLE
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -346,10 +347,6 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-
-  // ... (Keep existing _buildHeroCard, _buildCounterBadge, _buildActivityList, _buildActivityRow, _buildActionGrid)
-  // Re-paste them from your previous correct version or let me know if you need them included again.
-  // For brevity, assuming widgets are unchanged from the previous working version.
 
   Widget _buildHeroCard(Map<String, dynamic> stats) {
     final totalPrincipal = num.tryParse(stats['totalPrincipalOut']?.toString() ?? '0') ?? 0.0;
@@ -481,7 +478,6 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-// ... (SmartSearchDelegate and _ActionBtn remain as they were)
 class _ActionBtn extends StatelessWidget {
   final String label;
   final IconData icon;

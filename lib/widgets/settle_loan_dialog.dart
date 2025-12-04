@@ -1,10 +1,9 @@
-// lib/widgets/settle_loan_dialog.dart
 import 'package:flutter/material.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
 
 class SettleLoanDialog extends StatefulWidget {
   final int loanId;
-  final double outstandingBalance; // <--- Received from parent
+  final double outstandingBalance;
   final VoidCallback onSuccess;
 
   const SettleLoanDialog({
@@ -31,41 +30,57 @@ class _SettleLoanDialogState extends State<SettleLoanDialog> {
   @override
   void initState() {
     super.initState();
-    // Default: User pays full amount in cash, 0 discount
-    _cashController = TextEditingController(text: widget.outstandingBalance.toStringAsFixed(2));
+    // Initialize: Cash = Full Balance, Discount = 0
+    _cashController = TextEditingController(text: widget.outstandingBalance.toStringAsFixed(0));
     _discountController = TextEditingController(text: '0');
   }
 
-  // --- Logic: Cash + Discount must always equal Outstanding Balance ---
+  // --- OPTIMIZED LOGIC: Prevents "Lag" by only updating the OTHER field ---
 
   void _onCashChanged(String val) {
     if (val.isEmpty) return;
     double cash = double.tryParse(val) ?? 0;
-    // If I pay X cash, the rest must be discount
-    double discount = widget.outstandingBalance - cash;
-    if (discount < 0) discount = 0; // Cannot have negative discount (overpayment)
-    _discountController.text = discount.toStringAsFixed(2);
+
+    // Logic: Discount = Total - Cash
+    double newDiscount = widget.outstandingBalance - cash;
+    if (newDiscount < 0) newDiscount = 0;
+
+    // Only update text if value changed significantly (prevents cursor glitches)
+    String newDiscText = newDiscount.toStringAsFixed(0);
+    if (_discountController.text != newDiscText) {
+      _discountController.text = newDiscText;
+    }
+
+    // Refresh UI to update "Total/Status" without rebuilding the inputs unnecessarily
+    setState(() {});
   }
 
   void _onDiscountChanged(String val) {
     if (val.isEmpty) return;
     double discount = double.tryParse(val) ?? 0;
-    // If I give Y discount, the customer must pay the rest
-    double cash = widget.outstandingBalance - discount;
-    if (cash < 0) cash = 0;
-    _cashController.text = cash.toStringAsFixed(2);
+
+    // Logic: Cash = Total - Discount
+    double newCash = widget.outstandingBalance - discount;
+    if (newCash < 0) newCash = 0;
+
+    String newCashText = newCash.toStringAsFixed(0);
+    if (_cashController.text != newCashText) {
+      _cashController.text = newCashText;
+    }
+
+    setState(() {});
+  }
+
+  double get _currentTotal {
+    final cash = double.tryParse(_cashController.text) ?? 0;
+    final disc = double.tryParse(_discountController.text) ?? 0;
+    return cash + disc;
   }
 
   Future<void> _submitSettle() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    double cash = double.tryParse(_cashController.text) ?? 0;
-    double disc = double.tryParse(_discountController.text) ?? 0;
-    double total = cash + disc;
-
-    // Safety Check: Allow 0.5 rupee rounding difference
-    if ((widget.outstandingBalance - total).abs() > 0.5) {
-      setState(() => _errorMessage = "Total (Cash + Discount) must equal outstanding: ₹${widget.outstandingBalance.toStringAsFixed(2)}");
+    // Math Check
+    if ((widget.outstandingBalance - _currentTotal).abs() > 1.0) {
+      setState(() => _errorMessage = "Total must equal Outstanding Amount.");
       return;
     }
 
@@ -91,65 +106,99 @@ class _SettleLoanDialogState extends State<SettleLoanDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Settle & Close Loan'),
-      content: Form(
-        key: _formKey,
+    final total = _currentTotal;
+    final isBalanced = (widget.outstandingBalance - total).abs() < 1.0;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.red.shade200)
-                ),
-                child: Column(
-                  children: [
-                    Text("Outstanding Balance", style: TextStyle(fontSize: 12, color: Colors.red.shade900)),
-                    Text("₹${widget.outstandingBalance.toStringAsFixed(2)}", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.red.shade900)),
-                  ],
-                ),
+              // HEADER
+              Row(children: [
+                Icon(Icons.verified, color: Colors.green[700]),
+                const SizedBox(width: 8),
+                const Text("Settlement Checkout", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))
+              ]),
+              const Divider(height: 30),
+
+              // SUMMARY
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Outstanding", style: TextStyle(fontSize: 16)),
+                  Text("₹${widget.outstandingBalance.toStringAsFixed(0)}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
               ),
               const SizedBox(height: 20),
 
-              // Cash Input
-              TextFormField(
-                controller: _cashController,
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Cash Payment (₹)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.money)),
-                onChanged: _onCashChanged,
-              ),
-              const SizedBox(height: 15),
+              // INPUTS (Optimized)
+              _buildInput("Cash Payment", _cashController, Colors.green, _onCashChanged),
+              const SizedBox(height: 12),
+              _buildInput("Discount / Waiver", _discountController, Colors.orange, _onDiscountChanged),
 
-              // Discount Input
-              TextFormField(
-                controller: _discountController,
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Discount / Waiver (₹)', border: OutlineInputBorder(), prefixIcon: Icon(Icons.local_offer)),
-                onChanged: _onDiscountChanged,
+              const Divider(height: 30),
+
+              // STATUS ROW (Replaces "Remaining: 0")
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Status", style: TextStyle(fontWeight: FontWeight.bold)),
+                  isBalanced
+                      ? Row(children: const [
+                    Icon(Icons.check_circle, size: 16, color: Colors.green),
+                    SizedBox(width: 4),
+                    Text("Balanced", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold))
+                  ])
+                      : Text(
+                      "Pending: ₹${(widget.outstandingBalance - total).toStringAsFixed(0)}",
+                      style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)
+                  ),
+                ],
               ),
 
-              if (_errorMessage != null) ...[
-                const SizedBox(height: 16),
-                Text(_errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13)),
-              ],
+              if (_errorMessage != null)
+                Padding(padding: const EdgeInsets.only(top: 10), child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12))),
+
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: (_isLoading || !isBalanced) ? null : _submitSettle,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isBalanced ? Colors.green[700] : Colors.grey,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: _isLoading
+                      ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text("CONFIRM SETTLEMENT"),
+                ),
+              ),
             ],
           ),
         ),
       ),
-      actions: [
-        TextButton(onPressed: _isLoading ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
-        ElevatedButton(
-          onPressed: _isLoading ? null : _submitSettle,
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-          child: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Text('SETTLE', style: TextStyle(color: Colors.white)),
-        ),
-      ],
+    );
+  }
+
+  Widget _buildInput(String label, TextEditingController ctrl, Color color, Function(String) onChanged) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: TextInputType.number,
+      onChanged: onChanged,
+      // Removed setState inside TextField rebuilds to improve performance
+      decoration: InputDecoration(
+        labelText: label,
+        prefixText: '₹ ',
+        prefixIcon: Icon(Icons.money, color: color),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+        contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+      ),
     );
   }
 }

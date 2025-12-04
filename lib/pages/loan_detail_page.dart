@@ -24,25 +24,29 @@ class LoanDetailPage extends StatefulWidget {
   State<LoanDetailPage> createState() => _LoanDetailPageState();
 }
 
-class _LoanDetailPageState extends State<LoanDetailPage> {
+class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProviderStateMixin {
   late Future<LoanDetail> _loanDetailFuture;
   String? _userRole;
   final ApiService _apiService = ApiService();
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     _loadUserRole();
     _loadLoanDetails();
   }
 
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _userRole = prefs.getString('role');
-      });
-    }
+    if (mounted) setState(() => _userRole = prefs.getString('role'));
   }
 
   void _loadLoanDetails() {
@@ -51,58 +55,32 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
     });
   }
 
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'overdue':
-        return Colors.red;
-      case 'active':
-        return Colors.green;
-      case 'renewed':
-        return Colors.blue;
-      case 'paid':
-        return Colors.blueGrey;
-      case 'forfeited':
-        return Colors.black54;
-      default:
-        return Colors.black;
-    }
-  }
-
+  // --- ACTIONS ---
   void _showAddPaymentDialog() {
     showDialog(
       context: context,
-      builder: (BuildContext context) => AddPaymentDialog(
+      builder: (context) => AddPaymentDialog(
           loanId: widget.loanId,
-          onSuccess: () {
-            _loadLoanDetails();
-            _showMessage('Payment added successfully!');
-          }),
+          onSuccess: () { _loadLoanDetails(); _showMessage('Payment added successfully!'); }),
     );
   }
 
-  // --- UPDATED: Settle Dialog accepts balance ---
   void _showSettleLoanDialog(double currentBalance) {
     showDialog(
       context: context,
-      builder: (BuildContext context) => SettleLoanDialog(
+      builder: (context) => SettleLoanDialog(
           loanId: widget.loanId,
-          outstandingBalance: currentBalance, // Pass the calculated balance
-          onSuccess: () {
-            _loadLoanDetails();
-            _showMessage('Loan settled successfully!');
-          }),
+          outstandingBalance: currentBalance,
+          onSuccess: () { _loadLoanDetails(); _showMessage('Loan settled successfully!'); }),
     );
   }
 
   void _showAddPrincipalDialog() {
     showDialog(
       context: context,
-      builder: (BuildContext context) => AddPrincipalDialog(
+      builder: (context) => AddPrincipalDialog(
           loanId: widget.loanId,
-          onSuccess: () {
-            _loadLoanDetails();
-            _showMessage('Principal added successfully!');
-          }),
+          onSuccess: () { _loadLoanDetails(); _showMessage('Principal added successfully!'); }),
     );
   }
 
@@ -111,791 +89,632 @@ class _LoanDetailPageState extends State<LoanDetailPage> {
       context: context,
       builder: (context) => RenewLoanDialog(
         loanId: loan.id,
-        currentPrincipal: loan.principalAmount,
-        totalInterestOwed: loan.calculated.totalInterestOwed,
+        currentPrincipal: loan.calculated.outstandingPrincipal,
+        totalInterestOwed: loan.calculated.outstandingInterest,
         currentInterestRate: loan.interestRate,
         onSuccess: (newLoanId) {
           _showMessage('Loan Renewed Successfully!');
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-                builder: (context) => LoanDetailPage(loanId: newLoanId)),
-          );
+          Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoanDetailPage(loanId: newLoanId)));
         },
       ),
     );
   }
 
   void _showMessage(String msg) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.green));
-  }
-
-  void _navigateToHistory() {
-    Navigator.of(context).push(MaterialPageRoute(
-        builder: (context) => LoanHistoryPage(loanId: widget.loanId)));
-  }
-
-  void _onMenuSelected(String value, LoanDetail loan) {
-    if (value == 'edit_loan') {
-      Navigator.of(context)
-          .push(MaterialPageRoute(
-          builder: (context) => EditLoanPage(loanDetail: loan)))
-          .then((wasUpdated) {
-        if (wasUpdated == true) {
-          _loadLoanDetails();
-          _showMessage('Loan details updated!');
-        }
-      });
-    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.green));
   }
 
   Future<void> _handleDeleteLoan() async {
-    final confirmed = await _showConfirmationDialog(context, 'Delete Loan?',
-        'Are you sure you want to move this loan to the recycle bin?');
+    final confirmed = await _showConfirmationDialog(context, 'Delete Loan?', 'Are you sure you want to move this loan to the recycle bin?');
     if (confirmed) {
       try {
         await _apiService.softDeleteLoan(widget.loanId);
         if (!mounted) return;
+        Navigator.pop(context);
         _showMessage('Loan moved to recycle bin.');
-        Navigator.of(context).pop(true);
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
       }
     }
   }
 
-  Future<bool> _showConfirmationDialog(
-      BuildContext context, String title, String content) async {
+  Future<bool> _showConfirmationDialog(BuildContext context, String title, String content) async {
     return (await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(content),
+        title: Text(title), content: Text(content),
         actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('CANCEL')),
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('DELETE')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCEL')),
+          TextButton(onPressed: () => Navigator.pop(context, true), style: TextButton.styleFrom(foregroundColor: Colors.red), child: const Text('DELETE')),
         ],
       ),
-    )) ??
-        false;
+    )) ?? false;
   }
 
-  String _formatDateString(String? dateStr) {
-    if (dateStr == null) return 'N/A';
+  String _calculateElapsedDisplay(String startDateStr, String? endDateStr) {
     try {
-      final date = DateTime.parse(dateStr).toLocal();
-      return DateFormat('dd-MMM-yyyy').format(date);
+      final start = DateTime.parse(startDateStr);
+      final end = endDateStr != null ? DateTime.parse(endDateStr) : DateTime.now();
+
+      final days = end.difference(start).inDays;
+      final months = (days / 30).floor();
+      final remainingDays = days % 30;
+
+      if (months == 0) return "$days Days";
+      return "$months Mon, $remainingDays Days";
     } catch (e) {
-      return dateStr.split('T')[0];
+      return "N/A";
     }
   }
 
-  String formatStat(String value) {
-    try {
-      return '₹${double.parse(value).toStringAsFixed(0)}';
-    } catch (e) {
-      return '₹---';
-    }
-  }
-
-  // --- PDF GENERATOR ---
   Future<void> _generateAndSharePdf(LoanDetail loan) async {
     final doc = pw.Document();
-
-    doc.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Center(
-                  child: pw.Text('SRI KUBERA BANKERS',
-                      style: pw.TextStyle(
-                          fontSize: 24, fontWeight: pw.FontWeight.bold))),
-              pw.Center(
-                  child: pw.Text('123 Main Bazaar, Salem, Tamil Nadu - 636001',
-                      style: const pw.TextStyle(fontSize: 12))),
-              pw.Center(
-                  child: pw.Text('Phone: 9876543210',
-                      style: const pw.TextStyle(fontSize: 12))),
-              pw.Divider(),
-              pw.Center(
-                  child: pw.Text('PLEDGE TICKET / LOAN RECEIPT',
-                      style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                          decoration: pw.TextDecoration.underline))),
-              pw.SizedBox(height: 20),
-
-              // Info Grid
-              pw.Row(
-                crossAxisAlignment: pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Expanded(
-                    child: pw.Container(
-                      padding: const pw.EdgeInsets.all(10),
-                      decoration: pw.BoxDecoration(border: pw.Border.all()),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text('LOAN DETAILS',
-                              style: pw.TextStyle(
-                                  fontWeight: pw.FontWeight.bold,
-                                  decoration: pw.TextDecoration.underline)),
-                          pw.SizedBox(height: 5),
-                          pw.Text('Loan No: ${loan.bookLoanNumber ?? loan.id}'),
-                          pw.Text(
-                              'Date: ${_formatDateString(loan.pledgeDate)}'),
-                          pw.Text(
-                              'Principal: ${formatStat(loan.principalAmount)}'),
-                          pw.Text('Interest: ${loan.interestRate}% p.m.'),
-                          pw.Text(
-                              'Due Date: ${_formatDateString(loan.dueDate)}'),
-                        ],
-                      ),
-                    ),
-                  ),
-                  pw.SizedBox(width: 20),
-                  pw.Expanded(
-                    child: pw.Container(
-                      padding: const pw.EdgeInsets.all(10),
-                      decoration: pw.BoxDecoration(border: pw.Border.all()),
-                      child: pw.Column(
-                        crossAxisAlignment: pw.CrossAxisAlignment.start,
-                        children: [
-                          pw.Text('CUSTOMER DETAILS',
-                              style: pw.TextStyle(
-                                  fontWeight: pw.FontWeight.bold,
-                                  decoration: pw.TextDecoration.underline)),
-                          pw.SizedBox(height: 5),
-                          pw.Text('Name: ${loan.customerName}'),
-                          pw.Text('Phone: ${loan.phoneNumber}'),
-                          pw.Text('Address: ${loan.address ?? 'N/A'}'),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              pw.SizedBox(height: 20),
-
-              pw.Text('PARTICULARS OF PLEDGED ARTICLES:',
-                  style: pw.TextStyle(
-                      fontWeight: pw.FontWeight.bold,
-                      decoration: pw.TextDecoration.underline)),
-              pw.SizedBox(height: 5),
-              pw.Table.fromTextArray(
-                headers: [
-                  'Description',
-                  'Type',
-                  'Gross Wt',
-                  'Net Wt',
-                  'Purity'
-                ],
-                data: [
-                  [
-                    '${loan.description} (${loan.itemType})',
-                    loan.itemType?.toUpperCase() ?? 'N/A',
-                    '${loan.grossWeight ?? loan.weight ?? '-'} g',
-                    '${loan.netWeight ?? '-'} g',
-                    loan.purity ?? '-',
-                  ]
-                ],
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                cellAlignment: pw.Alignment.centerLeft,
-              ),
-              pw.SizedBox(height: 10),
-              pw.Align(
-                alignment: pw.Alignment.centerRight,
-                child: pw.Text(
-                    'Appraised Value: ${formatStat(loan.appraisedValue ?? '0')}',
-                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-              ),
-
-              pw.Spacer(),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Column(children: [
-                    pw.Container(
-                        width: 150, height: 1, color: PdfColors.black),
-                    pw.SizedBox(height: 5),
-                    pw.Text('Signature of Borrower'),
-                  ]),
-                  pw.Column(children: [
-                    pw.Container(
-                        width: 150, height: 1, color: PdfColors.black),
-                    pw.SizedBox(height: 5),
-                    pw.Text('For SRI KUBERA BANKERS'),
-                    pw.Text('(Authorized Signatory)',
-                        style: const pw.TextStyle(fontSize: 10)),
-                  ]),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-
-    await Printing.sharePdf(
-        bytes: await doc.save(),
-        filename: 'Loan_Invoice_${loan.bookLoanNumber}.pdf');
+    doc.addPage(pw.Page(
+      pageFormat: PdfPageFormat.a4,
+      build: (pw.Context context) {
+        return pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+          pw.Center(child: pw.Text('SRI KUBERA BANKERS', style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold))),
+          pw.Center(child: pw.Text('123 Main Bazaar, Salem - 636001 | Ph: 9876543210', style: const pw.TextStyle(fontSize: 12))),
+          pw.Divider(),
+          pw.SizedBox(height: 10),
+          pw.Text('LOAN RECEIPT #${loan.bookLoanNumber ?? loan.id}', style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 20),
+          pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              pw.Text('Customer Details', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.Text(loan.customerName),
+              pw.Text(loan.phoneNumber ?? ''),
+              pw.Text(loan.address ?? ''),
+            ])),
+            pw.Expanded(child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+              pw.Text('Loan Details', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+              pw.Text('Principal: Rs. ${loan.principalAmount}'),
+              pw.Text('Rate: ${loan.interestRate}%'),
+              pw.Text('Date: ${loan.pledgeDate.split('T')[0]}'),
+            ])),
+          ]),
+          pw.SizedBox(height: 20),
+          pw.Text('Item Details', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          pw.Text('${loan.itemType} - ${loan.description}'),
+          pw.Text('Weight: ${loan.grossWeight ?? loan.weight}g'),
+        ]);
+      },
+    ));
+    await Printing.sharePdf(bytes: await doc.save(), filename: 'Loan_${loan.bookLoanNumber}.pdf');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F7FA),
-      appBar: AppBar(
-        title: const Text('Loan Details'),
-        elevation: 0,
-        actions: [
-          IconButton(
-              icon: const Icon(Icons.refresh), onPressed: _loadLoanDetails),
-          FutureBuilder<LoanDetail>(
-              future: _loanDetailFuture,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const SizedBox.shrink();
-                final loan = snapshot.data!;
-                final isActive =
-                    loan.status == 'active' || loan.status == 'overdue';
-
-                return Row(
-                  children: [
-                    if (isActive)
-                      IconButton(
-                        icon: const Icon(Icons.autorenew),
-                        tooltip: 'Renew / Rollover Loan',
-                        onPressed: () => _showRenewLoanDialog(loan),
-                      ),
-                    IconButton(
-                        icon: const Icon(Icons.history),
-                        tooltip: 'View History',
-                        onPressed: _navigateToHistory),
-                    if (isActive)
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        tooltip: 'Edit Loan Details',
-                        onPressed: () => _onMenuSelected('edit_loan', loan),
-                      ),
-                    IconButton(
-                      icon: const Icon(Icons.print),
-                      tooltip: 'Print Invoice PDF',
-                      onPressed: () => _generateAndSharePdf(loan),
-                    ),
-                    // FIX: Always show DELETE for Admin
-                    if (_userRole == 'admin')
-                      IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          tooltip: 'Delete Loan',
-                          color: Colors.red,
-                          onPressed: _handleDeleteLoan),
-                  ],
-                );
-              }),
-        ],
-      ),
+      backgroundColor: const Color(0xFFF2F4F7),
       body: FutureBuilder<LoanDetail>(
         future: _loanDetailFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting)
-            return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError)
-            return Center(
-                child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Text('Error: ${snapshot.error}',
-                        textAlign: TextAlign.center)));
-          if (!snapshot.hasData)
-            return const Center(child: Text('Loan not found.'));
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+          if (!snapshot.hasData) return const Center(child: Text('Loan not found.'));
 
           final loan = snapshot.data!;
 
-          // --- FIX: Recalculate Total Paid & Balance Local Logic to match Web ---
-          final allTxs = loan.transactions;
-          // Filter payments to EXCLUDE discount from "Total Paid"
-          final paymentsReceived = allTxs
-              .where((tx) =>
-          tx.paymentType != 'disbursement' &&
-              tx.paymentType != 'discount')
-              .toList();
+          // Calculate Net Balance and Discount
+          final totalDiscount = loan.transactions
+              .where((tx) => tx.paymentType == 'discount')
+              .fold(0.0, (sum, tx) => sum + (double.tryParse(tx.amountPaid) ?? 0.0));
 
-          final totalPaidReal = paymentsReceived.fold(
-              0.0, (sum, tx) => sum + double.parse(tx.amountPaid));
-
-          // Calculate Balance
-          // Ideally use backend calculated amountDue, but ensure it syncs with logic
-          final currentBalance =
-              double.tryParse(loan.calculated.amountDue) ?? 0.0;
+          double amountDue = double.tryParse(loan.calculated.amountDue) ?? 0.0;
+          if (loan.status == 'paid') amountDue = 0;
 
           return Column(
             children: [
+              // 1. HEADER
+              _buildDarkHeader(loan, amountDue),
+
+              // 2. TABS
+              Container(
+                color: Colors.white,
+                child: TabBar(
+                  controller: _tabController,
+                  labelColor: Colors.black87,
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: Colors.black,
+                  indicatorWeight: 3,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  tabs: const [Tab(text: "DETAILS"), Tab(text: "TIMELINE")],
+                ),
+              ),
+
+              // 3. CONTENT
               Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.all(16.0),
+                child: TabBarView(
+                  controller: _tabController,
                   children: [
-                    _buildLoanSummaryCard(loan, totalPaidReal), // Pass corrected total
-                    const SizedBox(height: 16),
-                    _buildInterestBreakdownCard(loan),
-                    const SizedBox(height: 16),
-                    _buildItemDetailsCard(loan),
-                    const SizedBox(height: 16),
-                    _buildTransactionsList(loan.transactions),
-                    const SizedBox(height: 16),
-                    // --- NEW: Settlement Summary ---
-                    _buildSettlementSummary(loan),
-                    const SizedBox(height: 100),
+                    // TAB 1: DETAILS
+                    ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        // A. Pledged Asset (First)
+                        _buildDynamicItemCard(loan),
+                        const SizedBox(height: 16),
+
+                        // B. Info Grid
+                        _buildInfoGrid(loan),
+                        const SizedBox(height: 16),
+
+                        // C. Calculation Worksheet
+                        _buildCalculationWorksheet(loan, totalDiscount),
+                        const SizedBox(height: 100),
+                      ],
+                    ),
+                    // TAB 2: TIMELINE
+                    ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        _buildInterestBreakdown(loan),
+                        const SizedBox(height: 16),
+                        _buildSplitTransactionHistory(loan.transactions), // <-- NEW SPLIT VIEW
+                        const SizedBox(height: 100),
+                      ],
+                    ),
                   ],
                 ),
               ),
-              _buildActionButtons(loan, currentBalance), // Pass balance
             ],
+          );
+        },
+      ),
+
+      bottomNavigationBar: FutureBuilder<LoanDetail>(
+        future: _loanDetailFuture,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const SizedBox.shrink();
+          final loan = snapshot.data!;
+          final balance = double.tryParse(loan.calculated.amountDue) ?? 0.0;
+
+          if (loan.status != 'active' && loan.status != 'overdue') return const SizedBox.shrink();
+
+          return Container(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -5))],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _showAddPaymentDialog,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text("PAYMENT"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.indigo,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: () => _showSettleLoanDialog(balance),
+                    icon: const Icon(Icons.check, size: 18),
+                    label: const Text("SETTLE"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green[700],
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Container(
+                  decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
+                  child: IconButton(
+                    icon: const Icon(Icons.more_horiz),
+                    onPressed: () => _showMoreMenu(context, loan),
+                  ),
+                ),
+              ],
+            ),
           );
         },
       ),
     );
   }
 
-  // --- NEW: Settlement Summary Widget ---
-  Widget _buildSettlementSummary(LoanDetail loan) {
-    if (loan.status != 'paid') return const SizedBox.shrink();
-
-    final allTxs = loan.transactions;
-    final payTxs = allTxs.where((t) =>
-        ['interest', 'principal', 'settlement'].contains(t.paymentType));
-    final discountTxs = allTxs.where((t) => t.paymentType == 'discount');
-
-    final totalPrincipal = double.tryParse(loan.principalAmount) ?? 0.0;
-    final totalCashPaid =
-    payTxs.fold(0.0, (sum, t) => sum + double.parse(t.amountPaid));
-    final totalDiscount =
-    discountTxs.fold(0.0, (sum, t) => sum + double.parse(t.amountPaid));
-
-    // Derived Interest = (Cash + Discount) - Principal
-    final totalInterestGenerated =
-        (totalCashPaid + totalDiscount) - totalPrincipal;
-    final totalPayable = totalPrincipal + totalInterestGenerated;
-
-    return Card(
-      elevation: 2,
-      color: Colors.green.shade50,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              const Icon(Icons.check_circle, color: Colors.green, size: 20),
-              const SizedBox(width: 8),
-              Text("Settlement Summary",
-                  style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                      color: Colors.green.shade800))
-            ]),
-            const Divider(),
-            _buildSummaryRow("Total Principal", totalPrincipal),
-            _buildSummaryRow("+ Interest & Charges", totalInterestGenerated),
-            const Divider(),
-            _buildSummaryRow("Total Payable", totalPayable, isBold: true),
-            _buildSummaryRow("- Cash Paid", totalCashPaid, color: Colors.green),
-            if (totalDiscount > 0)
-              _buildSummaryRow("- Discount / Waiver", totalDiscount,
-                  color: Colors.red),
-            const Divider(),
-            _buildSummaryRow("Outstanding Balance", 0.0, isBold: true),
-            if (loan.closedDate != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 10.0),
-                child: Center(
-                    child: Text(
-                        'Settled on ${_formatDateString(loan.closedDate)}',
-                        style: TextStyle(
-                            color: Colors.grey[600],
-                            fontSize: 12,
-                            fontStyle: FontStyle.italic))),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSummaryRow(String label, double val,
-      {bool isBold = false, Color? color}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  void _showMoreMenu(BuildContext context, LoanDetail loan) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label,
-              style: TextStyle(
-                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
-          Text('₹${val.toStringAsFixed(0)}',
-              style: TextStyle(
-                  fontWeight: isBold ? FontWeight.bold : FontWeight.normal,
-                  color: color)),
+          ListTile(leading: const Icon(Icons.add_card), title: const Text("Add Principal"), onTap: () { Navigator.pop(context); _showAddPrincipalDialog(); }),
+          ListTile(leading: const Icon(Icons.autorenew), title: const Text("Renew Loan"), onTap: () { Navigator.pop(context); _showRenewLoanDialog(loan); }),
+          ListTile(leading: const Icon(Icons.edit), title: const Text("Edit Details"), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => EditLoanPage(loanDetail: loan))).then((val) => { if(val==true) _loadLoanDetails() }); }),
+          if (_userRole == 'admin')
+            ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Loan", style: TextStyle(color: Colors.red)), onTap: () { Navigator.pop(context); _handleDeleteLoan(); }),
+          const SizedBox(height: 20),
         ],
       ),
     );
   }
 
-  Widget _buildLoanSummaryCard(LoanDetail loan, double realTotalPaid) {
-    final stats = loan.calculated;
-    final isClosed = loan.status != 'active' && loan.status != 'overdue';
+  // --- WIDGETS ---
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildDarkHeader(LoanDetail loan, double amountDue) {
+    final isClosed = loan.status == 'paid';
+
+    return Container(
+      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 10, bottom: 24, left: 20, right: 20),
+      color: const Color(0xFF1E293B),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              InkWell(onTap: () => Navigator.pop(context), child: const Icon(Icons.arrow_back, color: Colors.white70)),
+              Row(children: [
+                IconButton(onPressed: () => _generateAndSharePdf(loan), icon: const Icon(Icons.print, color: Colors.white70)),
+                IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (c) => LoanHistoryPage(loanId: loan.id))), icon: const Icon(Icons.history, color: Colors.white70)),
+              ]),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          InkWell(
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (c) => CustomerDetailPage(customerId: loan.customerId, customerName: loan.customerName))),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => CustomerDetailPage(
-                            customerId: loan.customerId,
-                            customerName: loan.customerName,
-                          ),
-                        ),
-                      );
-                    },
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(loan.customerName,
-                            style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.indigo,
-                                decoration: TextDecoration.underline)),
-                        const SizedBox(height: 4),
-                        Text(loan.phoneNumber ?? 'No phone',
-                            style: TextStyle(
-                                color: Colors.grey[600], fontSize: 14)),
-                      ],
-                    ),
-                  ),
+                Text(loan.customerName, style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6)),
+                  child: Text("Loan #${loan.bookLoanNumber ?? loan.id}", style: const TextStyle(color: Colors.white70, fontSize: 12)),
                 ),
-                _buildStatusBadge(loan.status),
               ],
             ),
-            const Divider(height: 32),
-            _buildDetailRow('Book #', loan.bookLoanNumber ?? 'N/A'),
-            _buildDetailRow('Pledge Date', _formatDateString(loan.pledgeDate)),
-            if (isClosed && loan.closedDate != null)
-              _buildDetailRow(
-                  'Settled On', _formatDateString(loan.closedDate),
-                  valueColor: Colors.blueGrey)
-            else
-              _buildDetailRow('Due Date', _formatDateString(loan.dueDate)),
-            const Divider(height: 24),
-            _buildDetailRow('Total Principal', formatStat(loan.principalAmount),
-                isBold: true),
-            _buildDetailRow('Interest Rate', '${loan.interestRate}% / month'),
-            if (isClosed) ...[
-              const SizedBox(height: 10),
-              const Divider(),
-              _buildDetailRow(
-                  'Total Paid', '₹${realTotalPaid.toStringAsFixed(0)}',
-                  valueColor: Colors.green, isTotal: true),
-            ] else ...[
-              _buildDetailRow('Principal Paid', formatStat(stats.principalPaid),
-                  valueColor: Colors.green),
-              _buildDetailRow('Interest Paid', formatStat(stats.interestPaid),
-                  valueColor: Colors.green),
-              const Divider(height: 24),
-              _buildDetailRow(
-                  'Outstanding Principal', formatStat(stats.outstandingPrincipal),
-                  valueColor: Colors.red),
-              _buildDetailRow(
-                  'Outstanding Interest', formatStat(stats.outstandingInterest),
-                  valueColor: Colors.red),
-              const SizedBox(height: 8),
-              _buildDetailRow('TOTAL DUE', formatStat(stats.amountDue),
-                  valueColor: Colors.red, isTotal: true),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              Icon(Icons.phone, size: 12, color: Colors.white54),
+              const SizedBox(width: 4),
+              Text(loan.phoneNumber ?? '', style: TextStyle(color: Colors.white54, fontSize: 13)),
             ],
-          ],
-        ),
+          ),
+          const SizedBox(height: 24),
+
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("NET OUTSTANDING", style: TextStyle(color: Colors.white60, fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(
+                      isClosed ? "Settled" : "₹${amountDue.toStringAsFixed(0)}",
+                      style: TextStyle(color: isClosed ? Colors.greenAccent : Colors.white, fontSize: 36, fontWeight: FontWeight.bold)
+                  ),
+                ],
+              ),
+              const Spacer(),
+              _buildStatusBadge(loan.status),
+            ],
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildStatusBadge(String status) {
-    Color color = _getStatusColor(status);
+    Color bg; Color text;
+    switch (status) {
+      case 'overdue': bg = Colors.redAccent; text = Colors.white; break;
+      case 'active': bg = Colors.green; text = Colors.white; break;
+      case 'paid': bg = Colors.grey; text = Colors.white; break;
+      default: bg = Colors.blue; text = Colors.white;
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withOpacity(0.5)),
-      ),
-      child: Text(
-        status.toUpperCase(),
-        style:
-        TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 12),
-      ),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
+      child: Text(status.toUpperCase(), style: TextStyle(color: text, fontWeight: FontWeight.bold, fontSize: 11)),
     );
   }
 
-  Widget _buildInterestBreakdownCard(LoanDetail loan) {
-    if (loan.interestBreakdown.isEmpty ||
-        (loan.status != 'active' && loan.status != 'overdue'))
-      return const SizedBox.shrink();
-    return Card(
-      elevation: 0,
-      color: Colors.blue[50],
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Interest Breakdown",
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue[900],
-                    fontSize: 16)),
-            const SizedBox(height: 12),
-            ...loan.interestBreakdown.map((item) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(item.label,
-                                  style:
-                                  const TextStyle(fontWeight: FontWeight.w600)),
-                              Text(
-                                  "${_formatDateString(item.date)} • ${formatStat(item.amount)}",
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.blue[800]))
-                            ])),
-                    Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(formatStat(item.interest),
-                              style:
-                              const TextStyle(fontWeight: FontWeight.bold)),
-                          Text("${item.months.toStringAsFixed(2)} mo",
-                              style: TextStyle(
-                                  fontSize: 12, color: Colors.blue[800]))
-                        ]),
-                  ],
-                ),
-              );
-            }).toList(),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildDynamicItemCard(LoanDetail loan) {
+    final List<Map<String, String?>> itemFields = [
+      {'label': 'Item Type', 'value': loan.itemType},
+      {'label': 'Description', 'value': loan.description},
+      {'label': 'Quality', 'value': loan.quality},
+      {'label': 'Gross Weight', 'value': (loan.grossWeight ?? loan.weight) != null ? "${loan.grossWeight ?? loan.weight} g" : null},
+      {'label': 'Net Weight', 'value': loan.netWeight != null ? "${loan.netWeight} g" : null},
+      {'label': 'Purity', 'value': loan.purity},
+      {'label': 'Appraised Value', 'value': loan.appraisedValue != null ? "₹${loan.appraisedValue}" : null},
+    ];
 
-  Widget _buildItemDetailsCard(LoanDetail loan) {
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.inventory_2_outlined, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text('Pledged Item',
-                    style: Theme.of(context)
-                        .textTheme
-                        .titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-              ],
+    final validFields = itemFields.where((f) => f['value'] != null && f['value']!.isNotEmpty).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5)]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.inventory_2_outlined, color: Colors.indigo, size: 20),
+              const SizedBox(width: 8),
+              const Text("Pledged Asset", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const Divider(),
+          const SizedBox(height: 8),
+
+          if (loan.itemImageDataUrl != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(base64Decode(loan.itemImageDataUrl!.split(',')[1]), height: 180, width: double.infinity, fit: BoxFit.cover),
+              ),
             ),
-            const Divider(height: 24),
-            if (loan.itemImageDataUrl != null)
-              Padding(
-                  padding: const EdgeInsets.only(bottom: 16.0),
-                  child: Center(
-                      child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Image.memory(
-                              base64Decode(
-                                  loan.itemImageDataUrl!.split(',')[1]),
-                              height: 180,
-                              width: double.infinity,
-                              fit: BoxFit.cover)))),
-            _buildDetailRow('Type', loan.itemType ?? 'N/A'),
-            _buildDetailRow('Description', loan.description ?? 'N/A'),
-            _buildDetailRow('Quality', loan.quality ?? 'N/A'),
-            const Divider(),
-            _buildDetailRow(
-                'Gross Wt', '${loan.grossWeight ?? loan.weight ?? '0'} g'),
-            _buildDetailRow('Net Wt', '${loan.netWeight ?? '0'} g'),
-            _buildDetailRow('Purity', loan.purity ?? 'N/A'),
-            _buildDetailRow(
-                'Appraised Value', formatStat(loan.appraisedValue ?? '0')),
-          ],
-        ),
+
+          ...validFields.map((field) => Padding(
+            padding: const EdgeInsets.only(bottom: 8.0),
+            child: _itemDetailRow(field['label']!, field['value']!),
+          )),
+        ],
       ),
     );
   }
 
-  Widget _buildTransactionsList(List<Transaction> transactions) {
-    if (transactions.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _itemDetailRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-          child: Text("Recent Activity",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        ),
-        ...transactions.map((tx) {
-          String subtitle = _formatDateString(tx.paymentDate);
-          if (tx.changedByUsername != null)
-            subtitle += ' • ${tx.changedByUsername}';
-          return Card(
-            elevation: 0,
-            margin: const EdgeInsets.only(bottom: 8),
-            shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: CircleAvatar(
-                  backgroundColor: tx.color.withAlpha(30),
-                  child: Icon(tx.icon, color: tx.color, size: 20)),
-              title: Text(
-                  '${tx.paymentType[0].toUpperCase()}${tx.paymentType.substring(1)}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 15)),
-              subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-              trailing: Text(
-                  '${tx.paymentType == 'disbursement' ? '+' : '-'}${tx.formattedAmount}',
-                  style: TextStyle(
-                      color: tx.color,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15)),
-            ),
-          );
-        }).toList()
+        Text(label, style: const TextStyle(fontSize: 13, color: Colors.black54)),
+        Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
       ],
     );
   }
 
-  Widget _buildActionButtons(LoanDetail loan, double currentBalance) {
-    if (loan.status != 'active' && loan.status != 'overdue') {
-      return const SizedBox.shrink();
-    }
+  Widget _buildInfoGrid(LoanDetail loan) {
+    final accumulatedInterest = loan.calculated.totalInterestOwed;
+    final elapsedString = _calculateElapsedDisplay(loan.pledgeDate, loan.closedDate);
 
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(child: _buildGridCard("Principal", "₹${double.parse(loan.principalAmount).toStringAsFixed(0)}", Icons.account_balance_wallet, Colors.blue)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildGridCard("Acc. Interest", "₹${double.parse(accumulatedInterest).toStringAsFixed(0)}", Icons.trending_up, Colors.orange)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildGridCard("Interest Rate", "${loan.interestRate}% / mo", Icons.percent, Colors.purple)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildGridCard("Elapsed Time", elapsedString, Icons.timer, Colors.teal)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGridCard(String label, String value, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.all(16.0),
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 4,
-              offset: const Offset(0, -2)),
-        ],
-      ),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5, offset: const Offset(0, 2))]),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Row 1: Add Principal & Add Payment
-          Row(
-            children: [
-              Expanded(
-                  child: ElevatedButton(
-                      onPressed: _showAddPrincipalDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Add Principal',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold)))),
-              const SizedBox(width: 10),
-              Expanded(
-                  child: ElevatedButton(
-                      onPressed: _showAddPaymentDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: const Text('Add Payment',
-                          style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold)))),
-            ],
-          ),
-          const SizedBox(height: 10),
-
-          // Row 2: Settle & Close (Full Width)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-                onPressed: () => _showSettleLoanDialog(currentBalance), // FIX
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-                child: const Text('Settle & Close Loan',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold))),
-          ),
+          Row(children: [Icon(icon, size: 16, color: color), const SizedBox(width: 6), Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600))]),
+          const SizedBox(height: 8),
+          Text(value, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87), maxLines: 1, overflow: TextOverflow.ellipsis),
         ],
       ),
     );
   }
 
-  Widget _buildDetailRow(String label, String value,
-      {Color? valueColor, bool isTotal = false, bool isBold = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildCalculationWorksheet(LoanDetail loan, double totalDiscount) {
+    if (loan.interestBreakdown.isEmpty) return const SizedBox.shrink();
+    final stats = loan.calculated;
+    final isPaid = loan.status == 'paid';
+
+    final interestDueDisplay = isPaid ? "0" : stats.outstandingInterest;
+    final amountDueDisplay = isPaid ? "0" : stats.amountDue;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.indigo.withOpacity(0.1)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 5)]
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label,
-              style: TextStyle(
-                  color: Colors.grey[600],
-                  fontSize: isTotal ? 16 : 14,
-                  fontWeight: isTotal ? FontWeight.bold : FontWeight.normal)),
-          Flexible(
-              child: Text(value,
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                      fontWeight: isTotal || isBold
-                          ? FontWeight.bold
-                          : FontWeight.w500,
-                      fontSize: isTotal ? 18 : 14,
-                      color: valueColor ?? Colors.black87))),
+          Row(children: const [
+            Icon(Icons.calculate_outlined, color: Colors.indigo, size: 20),
+            SizedBox(width: 8),
+            Text("Detailed Calculations", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ]),
+          const Divider(),
+          const SizedBox(height: 8),
+
+          _calcRow("Total Principal", "₹${double.parse(loan.principalAmount).toStringAsFixed(0)}", isBold: true),
+          _calcRow("- Principal Repaid", "₹${double.parse(stats.principalPaid).toStringAsFixed(0)}", color: Colors.green),
+          const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Divider(height: 1, indent: 200)),
+          _calcRow("Net Principal", "₹${double.parse(stats.outstandingPrincipal).toStringAsFixed(0)}", isBold: true, color: Colors.blue[800]),
+
+          const SizedBox(height: 20),
+          const Text("Interest Breakdown:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+          const SizedBox(height: 8),
+
+          ...loan.interestBreakdown.map((item) {
+            final principalPart = double.parse(item.amount).toStringAsFixed(0);
+            final monthsPart = item.months.toStringAsFixed(2);
+            final ratePart = loan.interestRate;
+            final formula = "₹$principalPart × $ratePart% × $monthsPart mo";
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8.0, left: 8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    Text("${item.label} (${item.date.split('T')[0]})", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                    Text("₹${double.parse(item.interest).toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                  ]),
+                  Text(formula, style: const TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic)),
+                ],
+              ),
+            );
+          }),
+
+          const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Divider(height: 1, indent: 200)),
+          _calcRow("Total Accumulated Interest", "₹${double.parse(stats.totalInterestOwed).toStringAsFixed(0)}", isBold: true),
+          _calcRow("- Interest Paid", "₹${double.parse(stats.interestPaid).toStringAsFixed(0)}", color: Colors.green),
+
+          if (totalDiscount > 0)
+            _calcRow("- Discount / Waiver", "₹${totalDiscount.toStringAsFixed(0)}", color: Colors.red),
+
+          const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Divider(height: 1, indent: 200)),
+          _calcRow("Net Interest Due", "₹${double.parse(interestDueDisplay).toStringAsFixed(0)}", isBold: true, color: Colors.orange[800]),
+
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.indigo[50], borderRadius: BorderRadius.circular(8)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text("TOTAL PAYABLE", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                Text(
+                    isPaid ? "Settled" : "₹${double.parse(amountDueDisplay).toStringAsFixed(0)}",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isPaid ? Colors.green : Colors.indigo)
+                ),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _calcRow(String label, String value, {bool isBold = false, Color? color}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: 13, color: Colors.black87, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+          Text(value, style: TextStyle(fontSize: 13, color: color ?? Colors.black87, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInterestBreakdown(LoanDetail loan) {
+    if (loan.interestBreakdown.isEmpty) return const SizedBox.shrink();
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Interest Segments", style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 10),
+          ...loan.interestBreakdown.map((item) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(item.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                  Text("Factor: ${item.months} mo", style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                ]),
+                Text("₹${double.parse(item.interest).toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+              ],
+            ),
+          )),
+        ],
+      ),
+    );
+  }
+
+  // --- UPDATED: SPLIT TRANSACTION HISTORY ---
+  Widget _buildSplitTransactionHistory(List<Transaction> transactions) {
+    if (transactions.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No transactions yet.")));
+
+    // Filter lists
+    final payments = transactions.where((tx) => tx.paymentType != 'disbursement').toList();
+    final disbursements = transactions.where((tx) => tx.paymentType == 'disbursement').toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(padding: EdgeInsets.only(left: 4, bottom: 8), child: Text("Transaction History", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
+        Container(
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // LEFT: PAYMENTS
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(padding: EdgeInsets.only(bottom: 8), child: Text("Payments Received", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green))),
+                    if (payments.isEmpty) const Text("-", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    ...payments.map((tx) => _buildMiniTransactionCard(tx, isPayment: true))
+                  ],
+                ),
+              ),
+              const VerticalDivider(width: 24, thickness: 1),
+              // RIGHT: DISBURSEMENTS
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(padding: EdgeInsets.only(bottom: 8), child: Text("Principal Disbursed", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue))),
+                    if (disbursements.isEmpty) const Text("-", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    ...disbursements.map((tx) => _buildMiniTransactionCard(tx, isPayment: false))
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMiniTransactionCard(Transaction tx, {required bool isPayment}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(color: isPayment ? Colors.green.withOpacity(0.05) : Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(tx.formattedAmount, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isPayment ? Colors.green[700] : Colors.blue[700])),
+          const SizedBox(height: 2),
+          Text(tx.paymentType.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 2),
+          Text(DateFormat('dd MMM yy').format(DateTime.parse(tx.paymentDate)), style: const TextStyle(fontSize: 10, color: Colors.grey)),
+          if (tx.changedByUsername != null)
+            Text("by ${tx.changedByUsername}", style: const TextStyle(fontSize: 9, color: Colors.grey, fontStyle: FontStyle.italic)),
         ],
       ),
     );
