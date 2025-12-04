@@ -22,25 +22,26 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final ApiService _apiService = ApiService();
   String? _userRole;
+  bool _isLoadingRole = true;
 
   // Branch Switching State
   List<Branch> _branches = [];
   int? _selectedBranchId; // Null = All Branches
   String _selectedBranchName = "All Branches";
 
-  // Futures
   late Future<Map<String, dynamic>> _statsFuture;
   late Future<BusinessSettings> _settingsFuture;
   late Future<List<dynamic>> _recentCreatedFuture;
   late Future<List<dynamic>> _recentClosedFuture;
 
+  // --- ROLE HELPERS ---
+  bool get isAdmin => _userRole?.toLowerCase() == 'admin';
+  bool get isManager => _userRole?.toLowerCase() == 'manager';
+
   @override
   void initState() {
     super.initState();
-    // 1. Initialize futures IMMEDIATELY with defaults to prevent "Red Screen"
     _initializeFutures();
-
-    // 2. Load saved branch preference and user role in background
     _loadSavedBranch();
     _loadInitData();
   }
@@ -52,7 +53,6 @@ class _HomePageState extends State<HomePage> {
         setState(() {
           _selectedBranchId = prefs.getInt('current_branch_view');
           _selectedBranchName = prefs.getString('current_branch_name') ?? "Branch";
-          // Re-fetch data for the specific branch
           _initializeFutures();
         });
       }
@@ -68,7 +68,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadInitData() async {
     await _loadUserRole();
-    if (_userRole == 'admin') {
+    if (isAdmin) {
       try {
         final branches = await _apiService.getBranches();
         if (mounted) setState(() => _branches = branches);
@@ -80,7 +80,53 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _loadUserRole() async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) setState(() => _userRole = prefs.getString('role'));
+
+    // --- ROBUST LOADING ---
+    String? rawRole = prefs.getString('role');
+    String? safeRole = rawRole?.toLowerCase().trim();
+
+    // --- MANAGER BRANCH INFO ---
+    String? managerBranchName;
+    int? managerBranchId;
+
+    if (prefs.containsKey('user_data')) {
+      try {
+        final userDataStr = prefs.getString('user_data');
+        if (userDataStr != null) {
+          final userJson = jsonDecode(userDataStr);
+          managerBranchName = userJson['branchName'] ?? userJson['branch_name'];
+
+          var rawId = userJson['branchId'] ?? userJson['branch_id'];
+          if (rawId is int) {
+            managerBranchId = rawId;
+          } else if (rawId is String) {
+            managerBranchId = int.tryParse(rawId);
+          }
+        }
+      } catch (e) {
+        print("Error parsing user data: $e");
+      }
+    }
+
+    if (mounted) {
+      setState(() {
+        _userRole = safeRole;
+        _isLoadingRole = false; // Mark loading done
+
+        // IF MANAGER: Enforce Branch
+        if (isManager) {
+          if (managerBranchName != null && managerBranchName!.isNotEmpty) {
+            _selectedBranchName = managerBranchName!;
+          }
+          // Note: Even if ID is null, backend handles it via user token.
+          // But if we have the ID, we set it to be explicit.
+          if (managerBranchId != null) {
+            _selectedBranchId = managerBranchId;
+            _initializeFutures(); // Refresh with scoped ID
+          }
+        }
+      });
+    }
   }
 
   Future<void> _refreshAll() async {
@@ -116,8 +162,8 @@ class _HomePageState extends State<HomePage> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (context) => Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
+        height: 400,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             const Text("Select Branch View", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
@@ -177,7 +223,18 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        title: const Text('Dashboard', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w800, fontSize: 24)),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Dashboard', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.w800, fontSize: 24)),
+            // --- DEBUG TAG TO CONFIRM ROLE ---
+            if (_userRole != null)
+              Text(
+                "Role: ${_userRole!.toUpperCase()} | ${_selectedBranchName}",
+                style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold),
+              ),
+          ],
+        ),
         centerTitle: false,
         actions: [
           IconButton(
@@ -190,7 +247,9 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: _isLoadingRole
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
         onRefresh: _refreshAll,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -198,8 +257,8 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // BRANCH SELECTOR
-              if (_userRole == 'admin' && _branches.isNotEmpty)
+              // --- ADMIN BRANCH SELECTOR ---
+              if (isAdmin && _branches.isNotEmpty)
                 Center(
                   child: GestureDetector(
                     onTap: _showBranchSelector,
@@ -222,6 +281,27 @@ class _HomePageState extends State<HomePage> {
                           Icon(Icons.keyboard_arrow_down, color: Colors.indigo.shade700, size: 16),
                         ],
                       ),
+                    ),
+                  ),
+                )
+              // --- MANAGER BRANCH BADGE ---
+              else if (isManager)
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: Colors.indigo.shade200),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.store, color: Colors.indigo.shade700, size: 16),
+                        const SizedBox(width: 8),
+                        Text(_selectedBranchName, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo.shade700, fontSize: 13)),
+                      ],
                     ),
                   ),
                 ),
@@ -299,7 +379,7 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 10),
 
-              // RECENT ACTIVITY WITH PILL TOGGLE
+              // RECENT ACTIVITY
               Container(
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -464,8 +544,10 @@ class _HomePageState extends State<HomePage> {
       childAspectRatio: 1.1,
       children: [
         _ActionBtn(label: "Day Book", icon: Icons.menu_book, color: Colors.purple, onTap: () => _nav(const DayBookPage())),
-        if (_userRole == 'admin' || _userRole == 'manager') _ActionBtn(label: "Reports", icon: Icons.bar_chart, color: Colors.teal, onTap: () => _nav(const ReportsPage())),
-        if (_userRole == 'admin') ...[
+        // --- FIX: Explicit check for Admin OR Manager ---
+        if (isAdmin || isManager) _ActionBtn(label: "Reports", icon: Icons.bar_chart, color: Colors.teal, onTap: () => _nav(const ReportsPage())),
+
+        if (isAdmin) ...[
           _ActionBtn(label: "Staff", icon: Icons.people, color: Colors.orange, onTap: () => _nav(const ManageStaffPage())),
           _ActionBtn(label: "Branches", icon: Icons.store, color: Colors.brown, onTap: () => _nav(const ManageBranchesPage())),
         ]

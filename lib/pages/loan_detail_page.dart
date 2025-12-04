@@ -1,3 +1,4 @@
+// lib/pages/loan_detail_page.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
@@ -148,6 +149,12 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     }
   }
 
+  String _formatCurrency(String amount) {
+    // FIX: Use tryParse to handle cases where amount might be "-" or non-numeric
+    final amt = double.tryParse(amount) ?? 0.0;
+    return '₹${amt.toStringAsFixed(2)}';
+  }
+
   Future<void> _generateAndSharePdf(LoanDetail loan) async {
     final doc = pw.Document();
     doc.addPage(pw.Page(
@@ -192,7 +199,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
         future: _loanDetailFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}'));
+          if (snapshot.hasError) return Center(child: Text('Error: ${snapshot.error}', textAlign: TextAlign.center));
           if (!snapshot.hasData) return const Center(child: Text('Loan not found.'));
 
           final loan = snapshot.data!;
@@ -252,7 +259,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                       children: [
                         _buildInterestBreakdown(loan),
                         const SizedBox(height: 16),
-                        _buildSplitTransactionHistory(loan.transactions), // <-- NEW SPLIT VIEW
+                        _buildSplitTransactionHistory(loan.transactions),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -489,13 +496,17 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     final accumulatedInterest = loan.calculated.totalInterestOwed;
     final elapsedString = _calculateElapsedDisplay(loan.pledgeDate, loan.closedDate);
 
+    // Safe parse
+    final pAmt = double.tryParse(loan.principalAmount) ?? 0.0;
+    final iAmt = double.tryParse(accumulatedInterest) ?? 0.0;
+
     return Column(
       children: [
         Row(
           children: [
-            Expanded(child: _buildGridCard("Principal", "₹${double.parse(loan.principalAmount).toStringAsFixed(0)}", Icons.account_balance_wallet, Colors.blue)),
+            Expanded(child: _buildGridCard("Principal", "₹${pAmt.toStringAsFixed(0)}", Icons.account_balance_wallet, Colors.blue)),
             const SizedBox(width: 12),
-            Expanded(child: _buildGridCard("Acc. Interest", "₹${double.parse(accumulatedInterest).toStringAsFixed(0)}", Icons.trending_up, Colors.orange)),
+            Expanded(child: _buildGridCard("Acc. Interest", "₹${iAmt.toStringAsFixed(0)}", Icons.trending_up, Colors.orange)),
           ],
         ),
         const SizedBox(height: 12),
@@ -533,6 +544,9 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     final interestDueDisplay = isPaid ? "0" : stats.outstandingInterest;
     final amountDueDisplay = isPaid ? "0" : stats.amountDue;
 
+    // Use tryParse to avoid crashes on non-numeric strings (like "-")
+    double parseSafe(String val) => double.tryParse(val) ?? 0.0;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -552,28 +566,34 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
           const Divider(),
           const SizedBox(height: 8),
 
-          _calcRow("Total Principal", "₹${double.parse(loan.principalAmount).toStringAsFixed(0)}", isBold: true),
-          _calcRow("- Principal Repaid", "₹${double.parse(stats.principalPaid).toStringAsFixed(0)}", color: Colors.green),
+          _calcRow("Total Principal", "₹${parseSafe(loan.principalAmount).toStringAsFixed(0)}", isBold: true),
+          _calcRow("- Principal Repaid", "₹${parseSafe(stats.principalPaid).toStringAsFixed(0)}", color: Colors.green),
           const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Divider(height: 1, indent: 200)),
-          _calcRow("Net Principal", "₹${double.parse(stats.outstandingPrincipal).toStringAsFixed(0)}", isBold: true, color: Colors.blue[800]),
+          _calcRow("Net Principal", "₹${parseSafe(stats.outstandingPrincipal).toStringAsFixed(0)}", isBold: true, color: Colors.blue[800]),
 
           const SizedBox(height: 20),
           const Text("Interest Breakdown:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
           const SizedBox(height: 8),
 
           ...loan.interestBreakdown.map((item) {
-            final principalPart = double.parse(item.amount).toStringAsFixed(0);
+            // SAFE PARSING HERE (Fixes crash on "Minimum Adjustment" where amount is "-")
+            final principalPart = parseSafe(item.amount).toStringAsFixed(0);
             final monthsPart = item.months.toStringAsFixed(2);
             final ratePart = loan.interestRate;
-            final formula = "₹$principalPart × $ratePart% × $monthsPart mo";
+            final isAdjustment = item.amount == "-";
+
+            final formula = isAdjustment
+                ? "Adjustment to Min 1 Month"
+                : "₹$principalPart × $ratePart% × $monthsPart mo";
+
             return Padding(
               padding: const EdgeInsets.only(bottom: 8.0, left: 8.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    Text("${item.label} (${item.date.split('T')[0]})", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                    Text("₹${double.parse(item.interest).toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text("${item.label} ${item.date.contains('T') ? '(${item.date.split('T')[0]})' : ''}", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                    Text("₹${parseSafe(item.interest).toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   ]),
                   Text(formula, style: const TextStyle(fontSize: 11, color: Colors.grey, fontStyle: FontStyle.italic)),
                 ],
@@ -582,14 +602,14 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
           }),
 
           const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Divider(height: 1, indent: 200)),
-          _calcRow("Total Accumulated Interest", "₹${double.parse(stats.totalInterestOwed).toStringAsFixed(0)}", isBold: true),
-          _calcRow("- Interest Paid", "₹${double.parse(stats.interestPaid).toStringAsFixed(0)}", color: Colors.green),
+          _calcRow("Total Accumulated Interest", "₹${parseSafe(stats.totalInterestOwed).toStringAsFixed(0)}", isBold: true),
+          _calcRow("- Interest Paid", "₹${parseSafe(stats.interestPaid).toStringAsFixed(0)}", color: Colors.green),
 
           if (totalDiscount > 0)
             _calcRow("- Discount / Waiver", "₹${totalDiscount.toStringAsFixed(0)}", color: Colors.red),
 
           const Padding(padding: EdgeInsets.symmetric(vertical: 4), child: Divider(height: 1, indent: 200)),
-          _calcRow("Net Interest Due", "₹${double.parse(interestDueDisplay).toStringAsFixed(0)}", isBold: true, color: Colors.orange[800]),
+          _calcRow("Net Interest Due", "₹${parseSafe(interestDueDisplay).toStringAsFixed(0)}", isBold: true, color: Colors.orange[800]),
 
           const SizedBox(height: 12),
           Container(
@@ -600,7 +620,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
               children: [
                 const Text("TOTAL PAYABLE", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
                 Text(
-                    isPaid ? "Settled" : "₹${double.parse(amountDueDisplay).toStringAsFixed(0)}",
+                    isPaid ? "Settled" : "₹${parseSafe(amountDueDisplay).toStringAsFixed(0)}",
                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isPaid ? Colors.green : Colors.indigo)
                 ),
               ],
@@ -643,7 +663,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                   Text(item.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                   Text("Factor: ${item.months} mo", style: const TextStyle(fontSize: 11, color: Colors.grey)),
                 ]),
-                Text("₹${double.parse(item.interest).toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                // Safe parsing again here for timeline tab
+                Text("₹${double.tryParse(item.interest)?.toStringAsFixed(0) ?? '0'}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
               ],
             ),
           )),
@@ -652,7 +673,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     );
   }
 
-  // --- UPDATED: SPLIT TRANSACTION HISTORY ---
   Widget _buildSplitTransactionHistory(List<Transaction> transactions) {
     if (transactions.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No transactions yet.")));
 

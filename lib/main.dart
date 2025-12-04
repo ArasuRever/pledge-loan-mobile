@@ -1,16 +1,15 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // For status bar color
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jwt_decode/jwt_decode.dart';
 import 'package:pledge_loan_mobile/main_scaffold.dart';
-import 'package:pledge_loan_mobile/services/api_service.dart'; // Import API
-import 'package:pledge_loan_mobile/models/business_settings_model.dart'; // Import Model
+import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'package:pledge_loan_mobile/models/business_settings_model.dart';
 
 void main() {
-  // Ensure status bar style matches the app
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
@@ -29,8 +28,8 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
   Key _appKey = UniqueKey();
 
   // --- Custom Colors for "Sri Kubera" ---
-  static const Color kPrimaryNavy = Color(0xFF1A237E); // Deep Indigo/Navy
-  static const Color kBackground = Color(0xFFF5F7FA);  // Clean Grey-White
+  static const Color kPrimaryNavy = Color(0xFF1A237E);
+  static const Color kBackground = Color(0xFFF5F7FA);
 
   Future<String?> _checkLoginStatus() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -40,12 +39,14 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
         if (Jwt.isExpired(token)) {
           await prefs.remove('jwt_token');
           await prefs.remove('role');
+          await prefs.remove('user_data');
           return null;
         }
         return token;
       } catch (e) {
         await prefs.remove('jwt_token');
         await prefs.remove('role');
+        await prefs.remove('user_data');
         return null;
       }
     }
@@ -68,27 +69,21 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
         colorScheme: ColorScheme.fromSeed(
           seedColor: kPrimaryNavy,
           primary: kPrimaryNavy,
-          secondary: const Color(0xFFEF6C00), // Orange accent for actions
+          secondary: const Color(0xFFEF6C00),
           surface: Colors.white,
           background: kBackground,
         ),
-
-        // --- Typography ---
         fontFamily: 'Roboto',
         textTheme: const TextTheme(
           headlineSmall: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: kPrimaryNavy),
           titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.black87),
         ),
-
-        // --- Card Theme ---
         cardTheme: CardThemeData(
           elevation: 2,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           color: Colors.white,
           margin: EdgeInsets.zero,
         ),
-
-        // --- Input Decoration ---
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: Colors.white,
@@ -98,8 +93,6 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
           labelStyle: TextStyle(color: Colors.grey.shade700),
         ),
-
-        // --- Button Theme ---
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: kPrimaryNavy,
@@ -110,7 +103,6 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
             textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
         ),
-
         appBarTheme: const AppBarTheme(
           backgroundColor: kPrimaryNavy,
           foregroundColor: Colors.white,
@@ -127,6 +119,7 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
               SharedPreferences prefs = await SharedPreferences.getInstance();
               await prefs.remove('jwt_token');
               await prefs.remove('role');
+              await prefs.remove('user_data');
               _onStateChange();
             });
           }
@@ -135,9 +128,8 @@ class _PledgeLoanAppState extends State<PledgeLoanApp> {
       ),
     );
   }
-} // <--- Correctly closes _PledgeLoanAppState
+}
 
-// --- LOGIN PAGE (Redesigned) ---
 class LoginPage extends StatefulWidget {
   final VoidCallback onLoginSuccess;
   const LoginPage({super.key, required this.onLoginSuccess});
@@ -147,18 +139,16 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  bool _isAdmin = true;
+  // Rename variable for clarity: true = Admin/Manager, false = Staff
+  bool _isManagement = true;
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
   bool _isLoading = false;
   String _message = '';
 
-  // --- NEW STATE FOR BRANDING ---
   BusinessSettings? _branding;
   bool _loadingBranding = true;
-
-  // Updated API URL
   final String apiUrl = 'https://pledge-loan-api-as.onrender.com/api/auth/login';
 
   @override
@@ -169,7 +159,6 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _loadBranding() async {
     try {
-      // Fetch settings (public endpoint)
       final settings = await ApiService().getBusinessSettings();
       if (mounted) setState(() => _branding = settings);
     } catch (e) {
@@ -179,7 +168,6 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // Helper to display logo
   ImageProvider? _getLogoProvider() {
     if (_branding?.logoUrl != null) {
       try {
@@ -190,7 +178,6 @@ class _LoginPageState extends State<LoginPage> {
         return NetworkImage(url);
       } catch (_) {}
     }
-    // Fallback to asset if no custom logo
     return const AssetImage('assets/images/sri_kubera_logo.png');
   }
 
@@ -203,21 +190,42 @@ class _LoginPageState extends State<LoginPage> {
         body: jsonEncode({'username': _usernameController.text, 'password': _passwordController.text}),
       );
       final responseData = json.decode(response.body);
+
       if (response.statusCode == 200) {
         final String token = responseData['token'];
         if (responseData['user'] == null || responseData['user']['role'] == null) {
           setState(() => _message = 'Login Failed: Missing user data.'); return;
         }
-        final String actualRole = responseData['user']['role'];
-        String expectedRole = _isAdmin ? 'admin' : 'staff';
 
-        if (actualRole == expectedRole) {
+        // --- FIX: Normalize Role to Lowercase ---
+        final String rawRole = responseData['user']['role'];
+        final String actualRole = rawRole.toLowerCase().trim();
+
+        // --- AUTH LOGIC ---
+        bool isAuthorized = false;
+
+        if (_isManagement) {
+          // Allow BOTH Admin and Manager when "Management" toggle is selected
+          if (actualRole == 'admin' || actualRole == 'manager') {
+            isAuthorized = true;
+          }
+        } else {
+          // Staff toggle allows ONLY Staff
+          if (actualRole == 'staff') {
+            isAuthorized = true;
+          }
+        }
+
+        if (isAuthorized) {
           SharedPreferences prefs = await SharedPreferences.getInstance();
           await prefs.setString('jwt_token', token);
-          await prefs.setString('role', actualRole);
+          await prefs.setString('role', actualRole); // Save normalized role
+          await prefs.setString('user_data', jsonEncode(responseData['user']));
+
           widget.onLoginSuccess();
         } else {
-          setState(() => _message = 'Login Failed: You do not have "$expectedRole" privileges.');
+          String expectedLabel = _isManagement ? 'Admin/Manager' : 'Staff';
+          setState(() => _message = 'Login Failed: You are not authorized as $expectedLabel.');
         }
       } else {
         setState(() => _message = responseData['message'] ?? responseData['error'] ?? 'Invalid credentials.');
@@ -240,7 +248,6 @@ class _LoginPageState extends State<LoginPage> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                // --- DYNAMIC LOGO ---
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -259,8 +266,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 const SizedBox(height: 24.0),
-
-                // --- DYNAMIC NAME ---
                 Text(
                     _branding?.businessName ?? 'Sri Kubera Bankers',
                     textAlign: TextAlign.center,
@@ -273,18 +278,17 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 40.0),
 
-                // Role Toggle
+                // --- NEW ROLE TOGGLE ---
                 Container(
                   decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.all(4),
                   child: Row(children: [
-                    _buildRoleButton("Admin", true),
+                    _buildRoleButton("Management", true), // Changed text from Admin to Management
                     _buildRoleButton("Staff", false),
                   ]),
                 ),
                 const SizedBox(height: 24.0),
 
-                // Inputs
                 TextField(
                   controller: _usernameController,
                   decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person_outline)),
@@ -303,8 +307,6 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 const SizedBox(height: 24.0),
-
-                // Login Button
                 SizedBox(
                   width: double.infinity,
                   height: 56,
@@ -313,7 +315,6 @@ class _LoginPageState extends State<LoginPage> {
                     child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('LOGIN', style: TextStyle(fontSize: 16, letterSpacing: 1)),
                   ),
                 ),
-
                 if (_message.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 20.0),
@@ -327,11 +328,11 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _buildRoleButton(String label, bool isForAdmin) {
-    final isSelected = _isAdmin == isForAdmin;
+  Widget _buildRoleButton(String label, bool isForManagement) {
+    final isSelected = _isManagement == isForManagement;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _isAdmin = isForAdmin),
+        onTap: () => setState(() => _isManagement = isForManagement),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
