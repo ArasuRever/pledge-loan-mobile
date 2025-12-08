@@ -203,7 +203,7 @@ class ApiService {
     }
   }
 
-  // --- CUSTOMERS (UPDATED) ---
+  // --- CUSTOMERS ---
   Future<List<Customer>> getCustomers({int? branchId}) async {
     final headers = await _getAuthHeaders();
     final query = _buildQuery(branchId: branchId);
@@ -337,7 +337,7 @@ class ApiService {
     }
   }
 
-  // --- LOANS (UPDATED) ---
+  // --- LOANS ---
   Future<List<Loan>> getLoans({int? branchId}) async {
     final headers = await _getAuthHeaders();
     final query = _buildQuery(branchId: branchId);
@@ -437,6 +437,52 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to update loan: ${response.body}');
+    }
+  }
+
+  // --- FORFEIT / SELL ---
+  Future<void> forfeitLoan({
+    required int loanId,
+    required String salePrice,
+    required String notes,
+    required File signatureFile,
+    File? photoFile,
+  }) async {
+    final token = await _getToken();
+    if (token == null) throw Exception('Not authenticated');
+
+    var request = http.MultipartRequest('POST', Uri.parse('$_baseUrl/loans/$loanId/forfeit'));
+    request.headers['Authorization'] = 'Bearer $token';
+
+    request.fields['salePrice'] = salePrice;
+    request.fields['notes'] = notes;
+
+    if (await signatureFile.exists()) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'signature',
+        signatureFile.path,
+        contentType: MediaType('image', 'png'),
+      ));
+    }
+
+    if (photoFile != null && await photoFile.exists()) {
+      request.files.add(await http.MultipartFile.fromPath(
+        'photo',
+        photoFile.path,
+        contentType: MediaType('image', 'jpeg'),
+      ));
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+
+    if (response.statusCode != 200) {
+      String msg = 'Failed to forfeit loan';
+      try {
+        final body = jsonDecode(response.body);
+        msg = body['error'] ?? msg;
+      } catch (_) {}
+      throw Exception(msg);
     }
   }
 
@@ -542,7 +588,7 @@ class ApiService {
     }
   }
 
-  // --- SETTINGS (UPDATED) ---
+  // --- SETTINGS ---
   Future<BusinessSettings> getBusinessSettings({int? branchId}) async {
     try {
       final globalRes = await http.get(Uri.parse('$_baseUrl/settings'));
@@ -696,6 +742,18 @@ class ApiService {
     }
   }
 
+  Future<void> updateStaff(int userId, Map<String, dynamic> updates) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.put(
+      Uri.parse('$_baseUrl/users/$userId'),
+      headers: headers,
+      body: jsonEncode(updates),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update user: ${response.body}');
+    }
+  }
+
   // --- RECYCLE BIN ---
   Future<RecycleBinData> getRecycleBinData() async {
     final headers = await _getAuthHeaders();
@@ -794,10 +852,9 @@ class ApiService {
     }
   }
 
-  // --- FINANCIAL REPORT (UPDATED) ---
+  // --- FINANCIAL REPORT ---
   Future<FinancialReport> getFinancialReport(String startDate, String endDate, {int? branchId}) async {
     final headers = await _getAuthHeaders();
-    // Build query carefully
     String query = 'startDate=$startDate&endDate=$endDate';
     if (branchId != null) {
       query += '&branchId=$branchId';
@@ -814,7 +871,7 @@ class ApiService {
     }
   }
 
-  // --- DAYBOOK (UPDATED) ---
+  // --- DAYBOOK ---
   Future<Map<String, dynamic>> getDayBook(String date, {int? branchId}) async {
     final headers = await _getAuthHeaders();
     String query = 'date=$date';
@@ -830,18 +887,6 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to load Day Book: ${response.body}');
-    }
-  }
-
-  Future<void> updateStaff(int userId, Map<String, dynamic> updates) async {
-    final headers = await _getAuthHeaders();
-    final response = await http.put(
-      Uri.parse('$_baseUrl/users/$userId'),
-      headers: headers,
-      body: jsonEncode(updates),
-    );
-    if (response.statusCode != 200) {
-      throw Exception('Failed to update user: ${response.body}');
     }
   }
 }

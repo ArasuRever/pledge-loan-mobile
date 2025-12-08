@@ -10,6 +10,7 @@ import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/renew_loan_dialog.dart';
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
 import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
+import 'package:pledge_loan_mobile/pages/sell_loan_page.dart'; // NEW IMPORT
 import 'dart:convert';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -150,7 +151,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
   }
 
   String _formatCurrency(String amount) {
-    // FIX: Use tryParse to handle cases where amount might be "-" or non-numeric
     final amt = double.tryParse(amount) ?? 0.0;
     return '₹${amt.toStringAsFixed(2)}';
   }
@@ -204,7 +204,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
 
           final loan = snapshot.data!;
 
-          // Calculate Net Balance and Discount
           final totalDiscount = loan.transactions
               .where((tx) => tx.paymentType == 'discount')
               .fold(0.0, (sum, tx) => sum + (double.tryParse(tx.amountPaid) ?? 0.0));
@@ -240,15 +239,10 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                     ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
-                        // A. Pledged Asset (First)
                         _buildDynamicItemCard(loan),
                         const SizedBox(height: 16),
-
-                        // B. Info Grid
                         _buildInfoGrid(loan),
                         const SizedBox(height: 16),
-
-                        // C. Calculation Worksheet
                         _buildCalculationWorksheet(loan, totalDiscount),
                         const SizedBox(height: 100),
                       ],
@@ -341,6 +335,29 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
           ListTile(leading: const Icon(Icons.add_card), title: const Text("Add Principal"), onTap: () { Navigator.pop(context); _showAddPrincipalDialog(); }),
           ListTile(leading: const Icon(Icons.autorenew), title: const Text("Renew Loan"), onTap: () { Navigator.pop(context); _showRenewLoanDialog(loan); }),
           ListTile(leading: const Icon(Icons.edit), title: const Text("Edit Details"), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => EditLoanPage(loanDetail: loan))).then((val) => { if(val==true) _loadLoanDetails() }); }),
+
+          // --- NEW: SELL / FORFEIT OPTION ---
+          if (loan.status == 'active' || loan.status == 'overdue')
+            ListTile(
+              leading: const Icon(Icons.gavel, color: Colors.orange),
+              title: const Text("Sell / Forfeit Item", style: TextStyle(color: Colors.orange)),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => SellLoanPage(
+                      loanId: loan.id,
+                      currentAmountDue: loan.calculated.amountDue
+                  )),
+                ).then((success) {
+                  if (success == true) {
+                    _loadLoanDetails();
+                    _showMessage('Loan marked as Forfeited.');
+                  }
+                });
+              },
+            ),
+
           if (_userRole == 'admin')
             ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Loan", style: TextStyle(color: Colors.red)), onTap: () { Navigator.pop(context); _handleDeleteLoan(); }),
           const SizedBox(height: 20),
@@ -353,6 +370,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
 
   Widget _buildDarkHeader(LoanDetail loan, double amountDue) {
     final isClosed = loan.status == 'paid';
+    final isForfeited = loan.status == 'forfeited';
 
     return Container(
       padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 10, bottom: 24, left: 20, right: 20),
@@ -406,8 +424,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                   Text("NET OUTSTANDING", style: TextStyle(color: Colors.white60, fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
                   Text(
-                      isClosed ? "Settled" : "₹${amountDue.toStringAsFixed(0)}",
-                      style: TextStyle(color: isClosed ? Colors.greenAccent : Colors.white, fontSize: 36, fontWeight: FontWeight.bold)
+                      isForfeited ? "Forfeited" : (isClosed ? "Settled" : "₹${amountDue.toStringAsFixed(0)}"),
+                      style: TextStyle(color: (isClosed || isForfeited) ? Colors.greenAccent : Colors.white, fontSize: 36, fontWeight: FontWeight.bold)
                   ),
                 ],
               ),
@@ -426,6 +444,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
       case 'overdue': bg = Colors.redAccent; text = Colors.white; break;
       case 'active': bg = Colors.green; text = Colors.white; break;
       case 'paid': bg = Colors.grey; text = Colors.white; break;
+      case 'forfeited': bg = Colors.orange; text = Colors.black; break;
       default: bg = Colors.blue; text = Colors.white;
     }
     return Container(
@@ -496,7 +515,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     final accumulatedInterest = loan.calculated.totalInterestOwed;
     final elapsedString = _calculateElapsedDisplay(loan.pledgeDate, loan.closedDate);
 
-    // Safe parse
     final pAmt = double.tryParse(loan.principalAmount) ?? 0.0;
     final iAmt = double.tryParse(accumulatedInterest) ?? 0.0;
 
@@ -544,7 +562,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     final interestDueDisplay = isPaid ? "0" : stats.outstandingInterest;
     final amountDueDisplay = isPaid ? "0" : stats.amountDue;
 
-    // Use tryParse to avoid crashes on non-numeric strings (like "-")
     double parseSafe(String val) => double.tryParse(val) ?? 0.0;
 
     return Container(
@@ -576,7 +593,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
           const SizedBox(height: 8),
 
           ...loan.interestBreakdown.map((item) {
-            // SAFE PARSING HERE (Fixes crash on "Minimum Adjustment" where amount is "-")
             final principalPart = parseSafe(item.amount).toStringAsFixed(0);
             final monthsPart = item.months.toStringAsFixed(2);
             final ratePart = loan.interestRate;
@@ -663,7 +679,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                   Text(item.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                   Text("Factor: ${item.months} mo", style: const TextStyle(fontSize: 11, color: Colors.grey)),
                 ]),
-                // Safe parsing again here for timeline tab
                 Text("₹${double.tryParse(item.interest)?.toStringAsFixed(0) ?? '0'}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
               ],
             ),
@@ -676,7 +691,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
   Widget _buildSplitTransactionHistory(List<Transaction> transactions) {
     if (transactions.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No transactions yet.")));
 
-    // Filter lists
     final payments = transactions.where((tx) => tx.paymentType != 'disbursement').toList();
     final disbursements = transactions.where((tx) => tx.paymentType == 'disbursement').toList();
 
@@ -721,14 +735,19 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
   }
 
   Widget _buildMiniTransactionCard(Transaction tx, {required bool isPayment}) {
+    // Distinguish "Sale" and "Discount" visually
+    Color? color = isPayment ? Colors.green[700] : Colors.blue[700];
+    if (tx.paymentType == 'discount') color = Colors.red[700];
+    if (tx.paymentType == 'sale') color = Colors.orange[800];
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: isPayment ? Colors.green.withOpacity(0.05) : Colors.blue.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(color: color!.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(tx.formattedAmount, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isPayment ? Colors.green[700] : Colors.blue[700])),
+          Text(tx.formattedAmount, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
           const SizedBox(height: 2),
           Text(tx.paymentType.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
           const SizedBox(height: 2),
