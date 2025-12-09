@@ -10,7 +10,6 @@ import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/renew_loan_dialog.dart';
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
 import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
-import 'package:pledge_loan_mobile/pages/sell_loan_page.dart'; // NEW IMPORT
 import 'dart:convert';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -204,6 +203,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
 
           final loan = snapshot.data!;
 
+          // Calculate Net Balance and Discount
           final totalDiscount = loan.transactions
               .where((tx) => tx.paymentType == 'discount')
               .fold(0.0, (sum, tx) => sum + (double.tryParse(tx.amountPaid) ?? 0.0));
@@ -247,13 +247,13 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                         const SizedBox(height: 100),
                       ],
                     ),
-                    // TAB 2: TIMELINE
+                    // TAB 2: TIMELINE (Re-organized)
                     ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
                         _buildInterestBreakdown(loan),
-                        const SizedBox(height: 16),
-                        _buildSplitTransactionHistory(loan.transactions),
+                        const SizedBox(height: 24),
+                        _buildUnifiedTransactionHistory(loan.transactions),
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -335,29 +335,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
           ListTile(leading: const Icon(Icons.add_card), title: const Text("Add Principal"), onTap: () { Navigator.pop(context); _showAddPrincipalDialog(); }),
           ListTile(leading: const Icon(Icons.autorenew), title: const Text("Renew Loan"), onTap: () { Navigator.pop(context); _showRenewLoanDialog(loan); }),
           ListTile(leading: const Icon(Icons.edit), title: const Text("Edit Details"), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => EditLoanPage(loanDetail: loan))).then((val) => { if(val==true) _loadLoanDetails() }); }),
-
-          // --- NEW: SELL / FORFEIT OPTION ---
-          if (loan.status == 'active' || loan.status == 'overdue')
-            ListTile(
-              leading: const Icon(Icons.gavel, color: Colors.orange),
-              title: const Text("Sell / Forfeit Item", style: TextStyle(color: Colors.orange)),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => SellLoanPage(
-                      loanId: loan.id,
-                      currentAmountDue: loan.calculated.amountDue
-                  )),
-                ).then((success) {
-                  if (success == true) {
-                    _loadLoanDetails();
-                    _showMessage('Loan marked as Forfeited.');
-                  }
-                });
-              },
-            ),
-
           if (_userRole == 'admin')
             ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Loan", style: TextStyle(color: Colors.red)), onTap: () { Navigator.pop(context); _handleDeleteLoan(); }),
           const SizedBox(height: 20),
@@ -370,7 +347,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
 
   Widget _buildDarkHeader(LoanDetail loan, double amountDue) {
     final isClosed = loan.status == 'paid';
-    final isForfeited = loan.status == 'forfeited';
 
     return Container(
       padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 10, bottom: 24, left: 20, right: 20),
@@ -424,8 +400,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                   Text("NET OUTSTANDING", style: TextStyle(color: Colors.white60, fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
                   Text(
-                      isForfeited ? "Forfeited" : (isClosed ? "Settled" : "₹${amountDue.toStringAsFixed(0)}"),
-                      style: TextStyle(color: (isClosed || isForfeited) ? Colors.greenAccent : Colors.white, fontSize: 36, fontWeight: FontWeight.bold)
+                      isClosed ? "Settled" : "₹${amountDue.toStringAsFixed(0)}",
+                      style: TextStyle(color: isClosed ? Colors.greenAccent : Colors.white, fontSize: 36, fontWeight: FontWeight.bold)
                   ),
                 ],
               ),
@@ -444,7 +420,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
       case 'overdue': bg = Colors.redAccent; text = Colors.white; break;
       case 'active': bg = Colors.green; text = Colors.white; break;
       case 'paid': bg = Colors.grey; text = Colors.white; break;
-      case 'forfeited': bg = Colors.orange; text = Colors.black; break;
       default: bg = Colors.blue; text = Colors.white;
     }
     return Container(
@@ -515,6 +490,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     final accumulatedInterest = loan.calculated.totalInterestOwed;
     final elapsedString = _calculateElapsedDisplay(loan.pledgeDate, loan.closedDate);
 
+    // Safe parse
     final pAmt = double.tryParse(loan.principalAmount) ?? 0.0;
     final iAmt = double.tryParse(accumulatedInterest) ?? 0.0;
 
@@ -592,7 +568,20 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
           const Text("Interest Breakdown:", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
           const SizedBox(height: 8),
 
-          ...loan.interestBreakdown.map((item) {
+          ...loan.interestBreakdown.reversed.map((item) {
+            final isPayment = item.status == 'payment';
+            final isDiscount = item.label.toLowerCase().contains('discount');
+
+            if (isPayment) {
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8.0, left: 8.0),
+                child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  Text(item.label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDiscount ? Colors.orange[800] : Colors.green[800])),
+                  Text("₹${parseSafe(item.amount).abs().toStringAsFixed(0)}", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDiscount ? Colors.orange[800] : Colors.green[800])),
+                ]),
+              );
+            }
+
             final principalPart = parseSafe(item.amount).toStringAsFixed(0);
             final monthsPart = item.months.toStringAsFixed(2);
             final ratePart = loan.interestRate;
@@ -628,16 +617,37 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
           _calcRow("Net Interest Due", "₹${parseSafe(interestDueDisplay).toStringAsFixed(0)}", isBold: true, color: Colors.orange[800]),
 
           const SizedBox(height: 12),
+
+          // --- UPDATED BOTTOM SUMMARY CONTAINER ---
           Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.indigo[50], borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(
+              color: isPaid ? Colors.green.withOpacity(0.1) : Colors.indigo[50], // Green BG if Paid
+              borderRadius: BorderRadius.circular(8),
+              border: isPaid ? Border.all(color: Colors.green.withOpacity(0.3)) : null,
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("TOTAL PAYABLE", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                        isPaid ? "TOTAL PAID" : "TOTAL PAYABLE",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: isPaid ? Colors.green[800] : Colors.indigo)
+                    ),
+                    if (isPaid) // SHOW SETTLED STATUS
+                      Text(
+                          "(LOAN SETTLED)",
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.green[800], letterSpacing: 0.5)
+                      ),
+                  ],
+                ),
                 Text(
-                    isPaid ? "Settled" : "₹${parseSafe(amountDueDisplay).toStringAsFixed(0)}",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isPaid ? Colors.green : Colors.indigo)
+                    isPaid
+                        ? "₹${parseSafe(stats.totalPaid).toStringAsFixed(0)}" // SHOW TOTAL PAID IF SETTLED
+                        : "₹${parseSafe(amountDueDisplay).toStringAsFixed(0)}",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isPaid ? Colors.green[800] : Colors.indigo)
                 ),
               ],
             ),
@@ -660,102 +670,129 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     );
   }
 
+  // --- UPDATED: Interest Breakdown (Sequential / Oldest First) ---
   Widget _buildInterestBreakdown(LoanDetail loan) {
     if (loan.interestBreakdown.isEmpty) return const SizedBox.shrink();
+
+    // Sort oldest first (API sends newest first)
+    final breakdownList = List.from(loan.interestBreakdown.reversed);
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("Interest Segments", style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 10),
-          ...loan.interestBreakdown.map((item) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const Text("Loan Ledger / Timeline", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 12),
+
+          ...breakdownList.asMap().entries.map((entry) {
+            final index = entry.key;
+            final item = entry.value;
+            final isLast = index == breakdownList.length - 1;
+
+            final isPayment = item.status == 'payment';
+            final isDiscount = item.label.toLowerCase().contains('discount');
+
+            Color dotColor;
+            if (isPayment) {
+              dotColor = isDiscount ? Colors.orange : Colors.green;
+            } else {
+              dotColor = Colors.blue;
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(item.label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                  Text("Factor: ${item.months} mo", style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                ]),
-                Text("₹${double.tryParse(item.interest)?.toStringAsFixed(0) ?? '0'}", style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                Column(
+                  children: [
+                    Container(width: 10, height: 10, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
+                    if (!isLast) Container(width: 2, height: 40, color: Colors.grey.withOpacity(0.3)),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 16.0),
+                    child: isPayment
+                        ? _buildPaymentRow(item, isDiscount)
+                        : _buildAccrualRow(item),
+                  ),
+                ),
               ],
-            ),
-          )),
+            );
+          }),
         ],
       ),
     );
   }
 
-  Widget _buildSplitTransactionHistory(List<Transaction> transactions) {
-    if (transactions.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No transactions yet.")));
-
-    final payments = transactions.where((tx) => tx.paymentType != 'disbursement').toList();
-    final disbursements = transactions.where((tx) => tx.paymentType == 'disbursement').toList();
-
+  Widget _buildPaymentRow(InterestBreakdownItem item, bool isDiscount) {
+    final amount = double.tryParse(item.amount)?.abs().toStringAsFixed(0) ?? "0";
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(padding: EdgeInsets.only(left: 4, bottom: 8), child: Text("Transaction History", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey))),
-        Container(
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // LEFT: PAYMENTS
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(padding: EdgeInsets.only(bottom: 8), child: Text("Payments Received", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.green))),
-                    if (payments.isEmpty) const Text("-", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                    ...payments.map((tx) => _buildMiniTransactionCard(tx, isPayment: true))
-                  ],
-                ),
-              ),
-              const VerticalDivider(width: 24, thickness: 1),
-              // RIGHT: DISBURSEMENTS
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(padding: EdgeInsets.only(bottom: 8), child: Text("Principal Disbursed", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.blue))),
-                    if (disbursements.isEmpty) const Text("-", style: TextStyle(fontSize: 12, color: Colors.grey)),
-                    ...disbursements.map((tx) => _buildMiniTransactionCard(tx, isPayment: false))
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
+        Text(isDiscount ? "Discount Applied" : "Payment Received", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isDiscount ? Colors.orange[800] : Colors.green[800])),
+        Text(item.date.split('T')[0], style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        const SizedBox(height: 4),
+        Text("Amount: ₹$amount", style: TextStyle(fontWeight: FontWeight.w600, color: isDiscount ? Colors.orange[900] : Colors.green[900])),
       ],
     );
   }
 
-  Widget _buildMiniTransactionCard(Transaction tx, {required bool isPayment}) {
-    // Distinguish "Sale" and "Discount" visually
-    Color? color = isPayment ? Colors.green[700] : Colors.blue[700];
-    if (tx.paymentType == 'discount') color = Colors.red[700];
-    if (tx.paymentType == 'sale') color = Colors.orange[800];
+  Widget _buildAccrualRow(InterestBreakdownItem item) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(item.label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        Text("${item.date.split('T')[0]}  •  ${item.months} Months", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        const SizedBox(height: 4),
+        Text("Interest: ₹${double.tryParse(item.interest)?.toStringAsFixed(0) ?? '0'}", style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.blueGrey)),
+      ],
+    );
+  }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(color: color!.withOpacity(0.05), borderRadius: BorderRadius.circular(8)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(tx.formattedAmount, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: color)),
-          const SizedBox(height: 2),
-          Text(tx.paymentType.toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(DateFormat('dd MMM yy').format(DateTime.parse(tx.paymentDate)), style: const TextStyle(fontSize: 10, color: Colors.grey)),
-          if (tx.changedByUsername != null)
-            Text("by ${tx.changedByUsername}", style: const TextStyle(fontSize: 9, color: Colors.grey, fontStyle: FontStyle.italic)),
-        ],
-      ),
+  Widget _buildUnifiedTransactionHistory(List<Transaction> transactions) {
+    if (transactions.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No transactions yet.")));
+
+    // Ensure sorted by date descending (Newest first)
+    transactions.sort((a, b) => b.paymentDate.compareTo(a.paymentDate));
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Detailed Transactions", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 12),
+        Container(
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+          child: ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: transactions.length,
+            separatorBuilder: (c, i) => const Divider(height: 1, indent: 56),
+            itemBuilder: (ctx, index) {
+              final tx = transactions[index];
+
+              IconData icon; Color color; String displayType = tx.paymentType.toUpperCase();
+
+              if (tx.paymentType == 'disbursement') {
+                icon = Icons.arrow_outward; color = Colors.blue; displayType = "PRINCIPAL DISBURSED";
+              } else if (tx.paymentType == 'discount') {
+                icon = Icons.local_offer; color = Colors.orange; displayType = "DISCOUNT APPLIED";
+              } else {
+                icon = Icons.arrow_downward; color = Colors.green; displayType = "PAYMENT (${tx.paymentType.toUpperCase()})";
+              }
+
+              return ListTile(
+                leading: CircleAvatar(backgroundColor: color.withOpacity(0.1), child: Icon(icon, color: color, size: 20)),
+                title: Text(displayType, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                subtitle: Text("${tx.formattedDate} • ${tx.changedByUsername ?? 'sys'}", style: const TextStyle(fontSize: 11)),
+                trailing: Text(tx.formattedAmount, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 }

@@ -203,7 +203,7 @@ class ApiService {
     }
   }
 
-  // --- CUSTOMERS ---
+  // --- CUSTOMERS (UPDATED) ---
   Future<List<Customer>> getCustomers({int? branchId}) async {
     final headers = await _getAuthHeaders();
     final query = _buildQuery(branchId: branchId);
@@ -337,7 +337,7 @@ class ApiService {
     }
   }
 
-  // --- LOANS ---
+  // --- LOANS (UPDATED) ---
   Future<List<Loan>> getLoans({int? branchId}) async {
     final headers = await _getAuthHeaders();
     final query = _buildQuery(branchId: branchId);
@@ -440,12 +440,45 @@ class ApiService {
     }
   }
 
-  // --- FORFEIT / SELL ---
+  // --- TRANSACTIONS (UPDATED) ---
+  Future<List<dynamic>> addPayment({
+    required int loanId,
+    required String amount,
+    required String paymentType,
+    String? customDate, // <--- 1. NEW PARAMETER for Backdating
+  }) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/transactions'),
+      headers: headers,
+      body: jsonEncode({
+        'loan_id': loanId,
+        'amount_paid': amount,
+        'payment_type': paymentType,
+        if (customDate != null) 'custom_date': customDate, // <--- 2. SEND TO BACKEND
+      }),
+    );
+    if (response.statusCode == 201) {
+      return jsonDecode(response.body);
+    } else {
+      // Improved error handling for specific backend messages like "Date cannot be before Pledge Date"
+      String msg = 'Failed to add payment';
+      try {
+        final err = jsonDecode(response.body);
+        if (err['error'] != null) msg = err['error'];
+      } catch (_) {
+        msg = 'Failed to add payment: ${response.body}';
+      }
+      throw Exception(msg);
+    }
+  }
+
+  // --- FORFEIT / SELL LOAN ---
   Future<void> forfeitLoan({
     required int loanId,
     required String salePrice,
-    required String notes,
-    required File signatureFile,
+    String? notes,
+    File? signatureFile,
     File? photoFile,
   }) async {
     final token = await _getToken();
@@ -455,9 +488,10 @@ class ApiService {
     request.headers['Authorization'] = 'Bearer $token';
 
     request.fields['salePrice'] = salePrice;
-    request.fields['notes'] = notes;
+    if (notes != null) request.fields['notes'] = notes;
 
-    if (await signatureFile.exists()) {
+    if (signatureFile != null && await signatureFile.exists()) {
+      // Assuming signature is usually a PNG from signature pads, but mimetype handling can be generic
       request.files.add(await http.MultipartFile.fromPath(
         'signature',
         signatureFile.path,
@@ -473,39 +507,38 @@ class ApiService {
       ));
     }
 
-    final streamedResponse = await request.send();
-    final response = await http.Response.fromStream(streamedResponse);
+    try {
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
 
-    if (response.statusCode != 200) {
-      String msg = 'Failed to forfeit loan';
-      try {
-        final body = jsonDecode(response.body);
-        msg = body['error'] ?? msg;
-      } catch (_) {}
-      throw Exception(msg);
+      if (response.statusCode != 200) {
+        String msg = 'Failed to forfeit loan';
+        try {
+          final body = jsonDecode(response.body);
+          msg = body['error'] ?? msg;
+        } catch (_) {
+          msg = response.body;
+        }
+        throw Exception(msg);
+      }
+    } catch (e) {
+      throw Exception('Connection error during forfeiture: $e');
     }
   }
 
-  // --- TRANSACTIONS ---
-  Future<List<dynamic>> addPayment({
-    required int loanId,
-    required String amount,
-    required String paymentType,
-  }) async {
+  // --- NEW: Get Transactions for specific Loan (Used in Edit Page) ---
+  Future<List<Transaction>> getLoanTransactions(int loanId) async {
     final headers = await _getAuthHeaders();
-    final response = await http.post(
-      Uri.parse('$_baseUrl/transactions'),
+    final response = await http.get(
+      Uri.parse('$_baseUrl/loans/$loanId'),
       headers: headers,
-      body: jsonEncode({
-        'loan_id': loanId,
-        'amount_paid': amount,
-        'payment_type': paymentType,
-      }),
     );
-    if (response.statusCode == 201) {
-      return jsonDecode(response.body);
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      final List tList = data['transactions'] ?? [];
+      return tList.map((e) => Transaction.fromJson(e)).toList();
     } else {
-      throw Exception('Failed to add payment: ${response.body}');
+      throw Exception('Failed to load transactions');
     }
   }
 
@@ -588,7 +621,7 @@ class ApiService {
     }
   }
 
-  // --- SETTINGS ---
+  // --- SETTINGS (UPDATED) ---
   Future<BusinessSettings> getBusinessSettings({int? branchId}) async {
     try {
       final globalRes = await http.get(Uri.parse('$_baseUrl/settings'));
@@ -742,18 +775,6 @@ class ApiService {
     }
   }
 
-  Future<void> updateStaff(int userId, Map<String, dynamic> updates) async {
-    final headers = await _getAuthHeaders();
-    final response = await http.put(
-      Uri.parse('$_baseUrl/users/$userId'),
-      headers: headers,
-      body: jsonEncode(updates),
-    );
-    if (response.statusCode != 200) {
-      throw Exception('Failed to update user: ${response.body}');
-    }
-  }
-
   // --- RECYCLE BIN ---
   Future<RecycleBinData> getRecycleBinData() async {
     final headers = await _getAuthHeaders();
@@ -852,9 +873,10 @@ class ApiService {
     }
   }
 
-  // --- FINANCIAL REPORT ---
+  // --- FINANCIAL REPORT (UPDATED) ---
   Future<FinancialReport> getFinancialReport(String startDate, String endDate, {int? branchId}) async {
     final headers = await _getAuthHeaders();
+    // Build query carefully
     String query = 'startDate=$startDate&endDate=$endDate';
     if (branchId != null) {
       query += '&branchId=$branchId';
@@ -871,7 +893,7 @@ class ApiService {
     }
   }
 
-  // --- DAYBOOK ---
+  // --- DAYBOOK (UPDATED) ---
   Future<Map<String, dynamic>> getDayBook(String date, {int? branchId}) async {
     final headers = await _getAuthHeaders();
     String query = 'date=$date';
@@ -887,6 +909,18 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to load Day Book: ${response.body}');
+    }
+  }
+
+  Future<void> updateStaff(int userId, Map<String, dynamic> updates) async {
+    final headers = await _getAuthHeaders();
+    final response = await http.put(
+      Uri.parse('$_baseUrl/users/$userId'),
+      headers: headers,
+      body: jsonEncode(updates),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update user: ${response.body}');
     }
   }
 }

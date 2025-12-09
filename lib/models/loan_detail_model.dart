@@ -149,6 +149,7 @@ class InterestBreakdownItem {
   final String? endDate;
   final num months; // Using num handles both int (1) and double (0.5)
   final String interest;
+  final String? status; // <--- ADDED THIS FIELD
 
   InterestBreakdownItem({
     required this.label,
@@ -157,6 +158,7 @@ class InterestBreakdownItem {
     this.endDate,
     required this.months,
     required this.interest,
+    this.status, // <--- ADDED TO CONSTRUCTOR
   });
 
   factory InterestBreakdownItem.fromJson(Map<String, dynamic> json) {
@@ -168,6 +170,7 @@ class InterestBreakdownItem {
       // Safe parsing for months to prevent "double is not subtype of int" crash
       months: json['months'] is num ? json['months'] : 0,
       interest: json['interest']?.toString() ?? '0',
+      status: json['status'], // <--- PARSE FROM JSON
     );
   }
 }
