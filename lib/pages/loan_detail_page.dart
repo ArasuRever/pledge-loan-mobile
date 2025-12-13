@@ -9,6 +9,7 @@ import 'package:pledge_loan_mobile/widgets/settle_loan_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/add_principal_dialog.dart';
 import 'package:pledge_loan_mobile/widgets/renew_loan_dialog.dart';
 import 'package:pledge_loan_mobile/pages/edit_loan_page.dart';
+import 'package:pledge_loan_mobile/pages/sell_loan_page.dart'; // Ensure this is imported
 import 'package:pledge_loan_mobile/pages/customer_detail_page.dart';
 import 'dart:convert';
 import 'package:pdf/pdf.dart';
@@ -56,7 +57,69 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     });
   }
 
-  // --- ACTIONS ---
+  void _showMessage(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  // --- ACTIONS (NEW & EXISTING) ---
+
+  Future<void> _handleDeleteTransaction(int txId) async {
+    bool? confirm = await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+            title: const Text("Delete Transaction?"),
+            content: const Text("This cannot be undone. It will revert the financial impact."),
+            actions: [
+              TextButton(onPressed:()=>Navigator.pop(ctx,false), child: const Text("Cancel")),
+              TextButton(onPressed:()=>Navigator.pop(ctx,true), child: const Text("Delete", style: TextStyle(color: Colors.red))),
+            ]
+        )
+    );
+    if(confirm == true) {
+      try {
+        await _apiService.deleteTransaction(txId);
+        _loadLoanDetails();
+        _showMessage("Transaction deleted.");
+      } catch(e) { _showMessage(e.toString()); }
+    }
+  }
+
+  Future<void> _handleUndoForfeit() async {
+    bool? confirm = await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+            title: const Text("Undo Forfeiture?"),
+            content: const Text("Revert loan to active status and remove sale record?"),
+            actions: [
+              TextButton(onPressed:()=>Navigator.pop(ctx,false), child: const Text("Cancel")),
+              TextButton(onPressed:()=>Navigator.pop(ctx,true), child: const Text("Undo", style: TextStyle(color: Colors.red))),
+            ]
+        )
+    );
+    if(confirm == true) {
+      try {
+        await _apiService.undoForfeit(widget.loanId);
+        _loadLoanDetails();
+        _showMessage("Forfeiture undone.");
+      } catch(e) { _showMessage(e.toString()); }
+    }
+  }
+
+  Future<void> _handleDeleteLoan() async {
+    final confirmed = await _showConfirmationDialog(context, 'Delete Loan?', 'Are you sure you want to move this loan to the recycle bin?');
+    if (confirmed) {
+      try {
+        await _apiService.softDeleteLoan(widget.loanId);
+        if (!mounted) return;
+        Navigator.pop(context);
+        _showMessage('Loan moved to recycle bin.');
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
+      }
+    }
+  }
+
   void _showAddPaymentDialog() {
     showDialog(
       context: context,
@@ -91,7 +154,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
       builder: (context) => RenewLoanDialog(
         loanId: loan.id,
         currentPrincipal: loan.calculated.outstandingPrincipal,
-        totalInterestOwed: loan.calculated.outstandingInterest,
+        totalInterestOwed: loan.calculated.totalInterestOwed,
         currentInterestRate: loan.interestRate,
         onSuccess: (newLoanId) {
           _showMessage('Loan Renewed Successfully!');
@@ -99,25 +162,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
         },
       ),
     );
-  }
-
-  void _showMessage(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg), backgroundColor: Colors.green));
-  }
-
-  Future<void> _handleDeleteLoan() async {
-    final confirmed = await _showConfirmationDialog(context, 'Delete Loan?', 'Are you sure you want to move this loan to the recycle bin?');
-    if (confirmed) {
-      try {
-        await _apiService.softDeleteLoan(widget.loanId);
-        if (!mounted) return;
-        Navigator.pop(context);
-        _showMessage('Loan moved to recycle bin.');
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red));
-      }
-    }
   }
 
   Future<bool> _showConfirmationDialog(BuildContext context, String title, String content) async {
@@ -190,6 +234,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     await Printing.sharePdf(bytes: await doc.save(), filename: 'Loan_${loan.bookLoanNumber}.pdf');
   }
 
+  // --- UI BUILDER ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -208,8 +253,10 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
               .where((tx) => tx.paymentType == 'discount')
               .fold(0.0, (sum, tx) => sum + (double.tryParse(tx.amountPaid) ?? 0.0));
 
+          final isClosed = loan.status == 'paid' || loan.status == 'forfeited';
+
           double amountDue = double.tryParse(loan.calculated.amountDue) ?? 0.0;
-          if (loan.status == 'paid') amountDue = 0;
+          if (isClosed) amountDue = 0; // Visual Freeze
 
           return Column(
             children: [
@@ -253,7 +300,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                       children: [
                         _buildInterestBreakdown(loan),
                         const SizedBox(height: 24),
-                        _buildUnifiedTransactionHistory(loan.transactions),
+                        _buildUnifiedTransactionHistory(loan, loan.transactions), // Pass Full Loan
                         const SizedBox(height: 100),
                       ],
                     ),
@@ -269,58 +316,78 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
         future: _loanDetailFuture,
         builder: (context, snapshot) {
           if (!snapshot.hasData) return const SizedBox.shrink();
-          final loan = snapshot.data!;
-          final balance = double.tryParse(loan.calculated.amountDue) ?? 0.0;
-
-          if (loan.status != 'active' && loan.status != 'overdue') return const SizedBox.shrink();
-
-          return Container(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -5))],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _showAddPaymentDialog,
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text("PAYMENT"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.indigo,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () => _showSettleLoanDialog(balance),
-                    icon: const Icon(Icons.check, size: 18),
-                    label: const Text("SETTLE"),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green[700],
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
-                  child: IconButton(
-                    icon: const Icon(Icons.more_horiz),
-                    onPressed: () => _showMoreMenu(context, loan),
-                  ),
-                ),
-              ],
-            ),
-          );
+          return _buildBottomBar(snapshot.data!);
         },
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(LoanDetail loan) {
+    final isForfeited = loan.status == 'forfeited';
+    final isPaid = loan.status == 'paid';
+
+    if (isForfeited) {
+      // SPECIAL ACTIONS FOR FORFEITED LOANS
+      return Container(
+        padding: const EdgeInsets.all(16),
+        color: Colors.white,
+        child: ElevatedButton.icon(
+          onPressed: _handleUndoForfeit,
+          icon: const Icon(Icons.undo),
+          label: const Text("UNDO FORFEITURE"),
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+        ),
+      );
+    }
+
+    // Hide actions for Paid/Settled loans
+    if (isPaid) return const SizedBox.shrink();
+
+    // Standard Actions for Active/Overdue
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, -5))],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: _showAddPaymentDialog,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text("PAYMENT"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: ElevatedButton.icon(
+              onPressed: () => _showSettleLoanDialog(double.tryParse(loan.calculated.amountDue) ?? 0.0),
+              icon: const Icon(Icons.check, size: 18),
+              label: const Text("SETTLE"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green[700],
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(8)),
+            child: IconButton(
+              icon: const Icon(Icons.more_horiz),
+              onPressed: () => _showMoreMenu(context, loan),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -332,9 +399,18 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ListTile(leading: const Icon(Icons.add_card), title: const Text("Add Principal"), onTap: () { Navigator.pop(context); _showAddPrincipalDialog(); }),
-          ListTile(leading: const Icon(Icons.autorenew), title: const Text("Renew Loan"), onTap: () { Navigator.pop(context); _showRenewLoanDialog(loan); }),
-          ListTile(leading: const Icon(Icons.edit), title: const Text("Edit Details"), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => EditLoanPage(loanDetail: loan))).then((val) => { if(val==true) _loadLoanDetails() }); }),
+          if (loan.status == 'active' || loan.status == 'overdue') ...[
+            ListTile(leading: const Icon(Icons.add_card), title: const Text("Add Principal"), onTap: () { Navigator.pop(context); _showAddPrincipalDialog(); }),
+            ListTile(leading: const Icon(Icons.autorenew), title: const Text("Renew Loan"), onTap: () { Navigator.pop(context); _showRenewLoanDialog(loan); }),
+            ListTile(leading: const Icon(Icons.gavel, color: Colors.orange), title: const Text("Forfeit / Sell Item"), onTap: () {
+              Navigator.pop(context);
+              // PASS FULL LOAN OBJECT TO SELL PAGE
+              Navigator.push(context, MaterialPageRoute(builder: (c) => SellLoanPage(loan: loan)))
+                  .then((val) { if(val == true) _loadLoanDetails(); });
+            }),
+            ListTile(leading: const Icon(Icons.edit), title: const Text("Edit Details"), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (context) => EditLoanPage(loanDetail: loan))).then((val) => { if(val==true) _loadLoanDetails() }); }),
+          ],
+
           if (_userRole == 'admin')
             ListTile(leading: const Icon(Icons.delete, color: Colors.red), title: const Text("Delete Loan", style: TextStyle(color: Colors.red)), onTap: () { Navigator.pop(context); _handleDeleteLoan(); }),
           const SizedBox(height: 20),
@@ -346,7 +422,8 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
   // --- WIDGETS ---
 
   Widget _buildDarkHeader(LoanDetail loan, double amountDue) {
-    final isClosed = loan.status == 'paid';
+    final isClosed = loan.status == 'paid' || loan.status == 'forfeited';
+    String statusText = isClosed ? (loan.status == 'paid' ? "Settled" : "Forfeited") : "₹${amountDue.toStringAsFixed(0)}";
 
     return Container(
       padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 10, bottom: 24, left: 20, right: 20),
@@ -400,7 +477,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                   Text("NET OUTSTANDING", style: TextStyle(color: Colors.white60, fontSize: 11, letterSpacing: 1, fontWeight: FontWeight.w600)),
                   const SizedBox(height: 4),
                   Text(
-                      isClosed ? "Settled" : "₹${amountDue.toStringAsFixed(0)}",
+                      statusText,
                       style: TextStyle(color: isClosed ? Colors.greenAccent : Colors.white, fontSize: 36, fontWeight: FontWeight.bold)
                   ),
                 ],
@@ -420,6 +497,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
       case 'overdue': bg = Colors.redAccent; text = Colors.white; break;
       case 'active': bg = Colors.green; text = Colors.white; break;
       case 'paid': bg = Colors.grey; text = Colors.white; break;
+      case 'forfeited': bg = Colors.orange; text = Colors.white; break;
       default: bg = Colors.blue; text = Colors.white;
     }
     return Container(
@@ -490,7 +568,6 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     final accumulatedInterest = loan.calculated.totalInterestOwed;
     final elapsedString = _calculateElapsedDisplay(loan.pledgeDate, loan.closedDate);
 
-    // Safe parse
     final pAmt = double.tryParse(loan.principalAmount) ?? 0.0;
     final iAmt = double.tryParse(accumulatedInterest) ?? 0.0;
 
@@ -533,10 +610,10 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
   Widget _buildCalculationWorksheet(LoanDetail loan, double totalDiscount) {
     if (loan.interestBreakdown.isEmpty) return const SizedBox.shrink();
     final stats = loan.calculated;
-    final isPaid = loan.status == 'paid';
+    final isClosed = loan.status == 'paid' || loan.status == 'forfeited';
 
-    final interestDueDisplay = isPaid ? "0" : stats.outstandingInterest;
-    final amountDueDisplay = isPaid ? "0" : stats.amountDue;
+    final interestDueDisplay = isClosed ? "0" : stats.outstandingInterest;
+    final amountDueDisplay = isClosed ? "0" : stats.amountDue;
 
     double parseSafe(String val) => double.tryParse(val) ?? 0.0;
 
@@ -618,13 +695,12 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
 
           const SizedBox(height: 12),
 
-          // --- UPDATED BOTTOM SUMMARY CONTAINER ---
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: isPaid ? Colors.green.withOpacity(0.1) : Colors.indigo[50], // Green BG if Paid
+              color: isClosed ? Colors.green.withOpacity(0.1) : Colors.indigo[50], // Green BG if Closed
               borderRadius: BorderRadius.circular(8),
-              border: isPaid ? Border.all(color: Colors.green.withOpacity(0.3)) : null,
+              border: isClosed ? Border.all(color: Colors.green.withOpacity(0.3)) : null,
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -633,21 +709,21 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                        isPaid ? "TOTAL PAID" : "TOTAL PAYABLE",
-                        style: TextStyle(fontWeight: FontWeight.bold, color: isPaid ? Colors.green[800] : Colors.indigo)
+                        isClosed ? "TOTAL PAID" : "TOTAL PAYABLE",
+                        style: TextStyle(fontWeight: FontWeight.bold, color: isClosed ? Colors.green[800] : Colors.indigo)
                     ),
-                    if (isPaid) // SHOW SETTLED STATUS
+                    if (isClosed)
                       Text(
-                          "(LOAN SETTLED)",
+                          "(${loan.status.toUpperCase()})",
                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.green[800], letterSpacing: 0.5)
                       ),
                   ],
                 ),
                 Text(
-                    isPaid
-                        ? "₹${parseSafe(stats.totalPaid).toStringAsFixed(0)}" // SHOW TOTAL PAID IF SETTLED
+                    isClosed
+                        ? "₹${parseSafe(stats.totalPaid).toStringAsFixed(0)}" // Show Total Paid if closed
                         : "₹${parseSafe(amountDueDisplay).toStringAsFixed(0)}",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isPaid ? Colors.green[800] : Colors.indigo)
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: isClosed ? Colors.green[800] : Colors.indigo)
                 ),
               ],
             ),
@@ -670,11 +746,10 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     );
   }
 
-  // --- UPDATED: Interest Breakdown (Sequential / Oldest First) ---
   Widget _buildInterestBreakdown(LoanDetail loan) {
     if (loan.interestBreakdown.isEmpty) return const SizedBox.shrink();
 
-    // Sort oldest first (API sends newest first)
+    // Sort oldest first (API sends newest first, so we reverse it for timeline view)
     final breakdownList = List.from(loan.interestBreakdown.reversed);
 
     return Container(
@@ -752,7 +827,7 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
     );
   }
 
-  Widget _buildUnifiedTransactionHistory(List<Transaction> transactions) {
+  Widget _buildUnifiedTransactionHistory(LoanDetail loan, List<Transaction> transactions) {
     if (transactions.isEmpty) return const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No transactions yet.")));
 
     // Ensure sorted by date descending (Newest first)
@@ -773,6 +848,45 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
             itemBuilder: (ctx, index) {
               final tx = transactions[index];
 
+              // --- SPECIAL SALE CARD (Matches Web App Logic) ---
+              if (tx.paymentType == 'sale') {
+                final p = double.tryParse(loan.calculated.outstandingPrincipal) ?? 0;
+                final i = double.tryParse(loan.calculated.totalInterestOwed) ?? 0;
+                final costBasis = p + i;
+                final salePrice = double.tryParse(tx.amountPaid) ?? 0;
+                final totalVal = salePrice + costBasis; // New logic: Sale + Principal + Interest
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.red.withOpacity(0.3))),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text("ITEM SOLD", style: TextStyle(color: Colors.red[800], fontWeight: FontWeight.bold)),
+                        IconButton(icon: const Icon(Icons.delete, color: Colors.red, size: 20), onPressed: () => _handleDeleteTransaction(tx.id))
+                      ]),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const Text("Sold For:"), Text("₹${salePrice.toStringAsFixed(0)}", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold))
+                      ]),
+                      Divider(color: Colors.red.withOpacity(0.2)),
+                      const Text("Calculation:", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                      _miniRow("Principal", p),
+                      _miniRow("Interest", i),
+                      _miniRow("Cost (Bought For)", costBasis, isBold: true),
+                      const SizedBox(height: 4),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        const Text("Total (Sale+P+I):", style: TextStyle(fontWeight: FontWeight.bold)),
+                        Text("₹${totalVal.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold))
+                      ]),
+                      const SizedBox(height: 4),
+                      Align(alignment: Alignment.centerRight, child: Text(tx.formattedDate, style: const TextStyle(fontSize: 10, color: Colors.grey))),
+                    ],
+                  ),
+                );
+              }
+
               IconData icon; Color color; String displayType = tx.paymentType.toUpperCase();
 
               if (tx.paymentType == 'disbursement') {
@@ -787,12 +901,25 @@ class _LoanDetailPageState extends State<LoanDetailPage> with SingleTickerProvid
                 leading: CircleAvatar(backgroundColor: color.withOpacity(0.1), child: Icon(icon, color: color, size: 20)),
                 title: Text(displayType, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                 subtitle: Text("${tx.formattedDate} • ${tx.changedByUsername ?? 'sys'}", style: const TextStyle(fontSize: 11)),
-                trailing: Text(tx.formattedAmount, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(tx.formattedAmount, style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color)),
+                    IconButton(icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey), onPressed: () => _handleDeleteTransaction(tx.id))
+                  ],
+                ),
               );
             },
           ),
         ),
       ],
     );
+  }
+
+  Widget _miniRow(String label, double val, {bool isBold = false}) {
+    return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text(label, style: TextStyle(fontSize: 12, fontWeight: isBold?FontWeight.bold:FontWeight.normal)),
+      Text("₹${val.toStringAsFixed(0)}", style: TextStyle(fontSize: 12, fontWeight: isBold?FontWeight.bold:FontWeight.normal))
+    ]);
   }
 }

@@ -2,7 +2,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:pledge_loan_mobile/models/loan_detail_model.dart';
-import 'package:pledge_loan_mobile/models/transaction_model.dart'; // Import Transaction Model
+import 'package:pledge_loan_mobile/models/transaction_model.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
 import 'package:intl/intl.dart';
 import 'package:image_picker/image_picker.dart';
@@ -21,7 +21,6 @@ class _EditLoanPageState extends State<EditLoanPage> {
   final ApiService _apiService = ApiService();
   final ImagePicker _picker = ImagePicker();
 
-  // ... (Existing Controllers: _bookLoanNumberController, etc.) ...
   late TextEditingController _bookLoanNumberController;
   late TextEditingController _interestRateController;
   late TextEditingController _descriptionController;
@@ -30,21 +29,15 @@ class _EditLoanPageState extends State<EditLoanPage> {
   late TextEditingController _netWeightController;
   late TextEditingController _purityController;
   late TextEditingController _appraisedValueController;
-
-  // Date controllers
   late TextEditingController _pledgeDateController;
   late TextEditingController _dueDateController;
   late DateTime _selectedPledgeDate;
   late DateTime _selectedDueDate;
-
   late String _selectedItemType;
   final List<String> _itemTypeOptions = ['gold', 'silver', 'brass', 'electronic', 'vehicle', 'other'];
 
   File? _imageFile;
   bool _isLoading = false;
-  String? _errorMessage;
-
-  // --- NEW: Transaction State ---
   List<Transaction> _transactions = [];
   bool _isLoadingTxs = true;
 
@@ -52,7 +45,7 @@ class _EditLoanPageState extends State<EditLoanPage> {
   void initState() {
     super.initState();
     _initializeForm();
-    _fetchTransactions(); // <--- Fetch on init
+    _fetchTransactions();
   }
 
   void _initializeForm() {
@@ -81,15 +74,36 @@ class _EditLoanPageState extends State<EditLoanPage> {
   Future<void> _fetchTransactions() async {
     try {
       final txs = await _apiService.getLoanTransactions(widget.loanDetail.id);
-      if (mounted) {
-        setState(() {
-          _transactions = txs;
-          _isLoadingTxs = false;
-        });
-      }
+      if (mounted) setState(() { _transactions = txs; _isLoadingTxs = false; });
     } catch (e) {
       if (mounted) setState(() => _isLoadingTxs = false);
-      print("Error fetching transactions: $e");
+    }
+  }
+
+  Future<void> _deleteTransaction(int txId) async {
+    bool? confirm = await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+            title: const Text("Delete Transaction?"),
+            content: const Text("This cannot be undone."),
+            actions: [
+              TextButton(onPressed:()=>Navigator.pop(ctx,false), child: const Text("Cancel")),
+              TextButton(onPressed:()=>Navigator.pop(ctx,true), child: const Text("Delete", style: TextStyle(color: Colors.red))),
+            ]
+        )
+    );
+    if (confirm == true) {
+      setState(() => _isLoadingTxs = true);
+      try {
+        await _apiService.deleteTransaction(txId);
+        await _fetchTransactions();
+        if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Transaction deleted")));
+      } catch(e) {
+        if(mounted) {
+          setState(() => _isLoadingTxs = false);
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        }
+      }
     }
   }
 
@@ -109,9 +123,8 @@ class _EditLoanPageState extends State<EditLoanPage> {
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text("Add past/missing payments. Logic handles interest split automatically.", style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const Text("Add past/missing payments.", style: TextStyle(fontSize: 12, color: Colors.grey)),
                 const SizedBox(height: 16),
-                // Date Picker
                 InkWell(
                   onTap: () async {
                     final d = await showDatePicker(
@@ -135,7 +148,6 @@ class _EditLoanPageState extends State<EditLoanPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Type Dropdown
                 DropdownButtonFormField<String>(
                   value: type,
                   decoration: const InputDecoration(border: OutlineInputBorder(), contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 0)),
@@ -147,7 +159,6 @@ class _EditLoanPageState extends State<EditLoanPage> {
                   onChanged: (v) => setStateDialog(() => type = v!),
                 ),
                 const SizedBox(height: 12),
-                // Amount
                 TextField(
                   controller: amountCtrl,
                   keyboardType: TextInputType.number,
@@ -166,16 +177,15 @@ class _EditLoanPageState extends State<EditLoanPage> {
                       loanId: widget.loanDetail.id,
                       amount: amountCtrl.text,
                       paymentType: type,
-                      customDate: DateFormat('yyyy-MM-dd').format(selectedDate), // Sending Backdate
+                      customDate: DateFormat('yyyy-MM-dd').format(selectedDate),
                     );
                     if (mounted) {
                       Navigator.pop(context);
-                      _fetchTransactions(); // Refresh list
+                      _fetchTransactions();
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Transaction Logged")));
                     }
                   } catch (e) {
                     setStateDialog(() => submitting = false);
-                    // Use a Builder to show SnackBar in the dialog context or parent
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceAll("Exception: ", ""))));
                   }
                 },
@@ -188,22 +198,44 @@ class _EditLoanPageState extends State<EditLoanPage> {
     );
   }
 
-  // ... (Existing Methods: _pickImage, _showImageSourceActionSheet, _selectDate, _submitUpdate, _onGrossWeightChanged, dispose) ...
+  Future<void> _submitUpdate() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _isLoading = true);
+    try {
+      final Map<String, String> loanData = {
+        'book_loan_number': _bookLoanNumberController.text,
+        'interest_rate': _interestRateController.text,
+        'item_type': _selectedItemType,
+        'description': _descriptionController.text,
+        'quality': _qualityController.text,
+        'gross_weight': _grossWeightController.text,
+        'net_weight': _netWeightController.text,
+        'purity': _purityController.text,
+        'appraised_value': _appraisedValueController.text,
+        'pledge_date': _pledgeDateController.text,
+        'due_date': _dueDateController.text,
+      };
+      await _apiService.updateLoan(loanId: widget.loanDetail.id, loanData: loanData, imageFile: _imageFile);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Loan updated!')));
+        Navigator.of(context).pop(true);
+      }
+    } catch (e) {
+      if(mounted) setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    }
+  }
+
   Future<void> _pickImage(ImageSource source) async {
     final pickedFile = await _picker.pickImage(source: source);
     if (pickedFile != null) setState(() => _imageFile = File(pickedFile.path));
   }
 
   void _showImageSourceActionSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Wrap(children: [
-          ListTile(leading: const Icon(Icons.photo_library), title: const Text('Gallery'), onTap: () { _pickImage(ImageSource.gallery); Navigator.of(context).pop(); }),
-          ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Camera'), onTap: () { _pickImage(ImageSource.camera); Navigator.of(context).pop(); }),
-        ]),
-      ),
-    );
+    showModalBottomSheet(context: context, builder: (context) => SafeArea(child: Wrap(children: [
+      ListTile(leading: const Icon(Icons.photo_library), title: const Text('Gallery'), onTap: () { _pickImage(ImageSource.gallery); Navigator.of(context).pop(); }),
+      ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Camera'), onTap: () { _pickImage(ImageSource.camera); Navigator.of(context).pop(); }),
+    ])));
   }
 
   Future<void> _selectDate(BuildContext context, bool isPledgeDate) async {
@@ -226,50 +258,8 @@ class _EditLoanPageState extends State<EditLoanPage> {
     }
   }
 
-  Future<void> _submitUpdate() async {
-    if (!_formKey.currentState!.validate()) return;
-    setState(() { _isLoading = true; _errorMessage = null; });
-    try {
-      final Map<String, String> loanData = {
-        'book_loan_number': _bookLoanNumberController.text,
-        'interest_rate': _interestRateController.text,
-        'item_type': _selectedItemType,
-        'description': _descriptionController.text,
-        'quality': _qualityController.text,
-        'gross_weight': _grossWeightController.text,
-        'net_weight': _netWeightController.text,
-        'purity': _purityController.text,
-        'appraised_value': _appraisedValueController.text,
-        'pledge_date': _pledgeDateController.text,
-        'due_date': _dueDateController.text,
-      };
-      await _apiService.updateLoan(loanId: widget.loanDetail.id, loanData: loanData, imageFile: _imageFile);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Loan updated!')));
-        Navigator.of(context).pop(true);
-      }
-    } catch (e) {
-      setState(() { _errorMessage = e.toString(); _isLoading = false; });
-    }
-  }
-
   void _onGrossWeightChanged(String val) {
     if (_netWeightController.text.isEmpty) _netWeightController.text = val;
-  }
-
-  @override
-  void dispose() {
-    _bookLoanNumberController.dispose();
-    _interestRateController.dispose();
-    _descriptionController.dispose();
-    _qualityController.dispose();
-    _grossWeightController.dispose();
-    _netWeightController.dispose();
-    _purityController.dispose();
-    _appraisedValueController.dispose();
-    _pledgeDateController.dispose();
-    _dueDateController.dispose();
-    super.dispose();
   }
 
   @override
@@ -281,7 +271,6 @@ class _EditLoanPageState extends State<EditLoanPage> {
         child: ListView(
           padding: const EdgeInsets.all(16.0),
           children: [
-            // --- 1. PHOTO SECTION ---
             GestureDetector(
               onTap: () => _showImageSourceActionSheet(context),
               child: Container(
@@ -298,25 +287,18 @@ class _EditLoanPageState extends State<EditLoanPage> {
               ),
             ),
             const SizedBox(height: 24),
-
-            // --- 2. LOAN TERMS ---
             const Text('Loan Terms', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
             const SizedBox(height: 10),
             TextFormField(controller: _bookLoanNumberController, decoration: const InputDecoration(labelText: 'Book Loan Number', border: OutlineInputBorder()), validator: (value) => (value == null || value.isEmpty) ? 'Required' : null),
             const SizedBox(height: 16),
-            Row(children: [
-              Expanded(child: TextFormField(controller: _interestRateController, decoration: const InputDecoration(labelText: 'Interest Rate (%)', border: OutlineInputBorder()), keyboardType: TextInputType.number, validator: (v) => v!.isEmpty ? 'Required' : null)),
-              const SizedBox(width: 10), Expanded(child: Container()),
-            ]),
+            Row(children: [Expanded(child: TextFormField(controller: _interestRateController, decoration: const InputDecoration(labelText: 'Interest Rate (%)', border: OutlineInputBorder()), keyboardType: TextInputType.number, validator: (v) => v!.isEmpty ? 'Required' : null)), const SizedBox(width: 10), Expanded(child: Container())]),
             const SizedBox(height: 16),
             Row(children: [
               Expanded(child: TextFormField(controller: _pledgeDateController, decoration: const InputDecoration(labelText: 'Pledge Date', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today, size: 18)), readOnly: true, onTap: () => _selectDate(context, true))),
               const SizedBox(width: 10),
               Expanded(child: TextFormField(controller: _dueDateController, decoration: const InputDecoration(labelText: 'Due Date', border: OutlineInputBorder(), suffixIcon: Icon(Icons.event, size: 18)), readOnly: true, onTap: () => _selectDate(context, false))),
             ]),
-
             const SizedBox(height: 24),
-            // --- 3. ITEM DETAILS ---
             const Text('Item Details', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.indigo)),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(value: _selectedItemType, decoration: const InputDecoration(labelText: 'Item Type', border: OutlineInputBorder()), items: _itemTypeOptions.map((e) => DropdownMenuItem(value: e, child: Text(e.toUpperCase()))).toList(), onChanged: (val) => setState(() => _selectedItemType = val!)),
@@ -336,32 +318,23 @@ class _EditLoanPageState extends State<EditLoanPage> {
             ]),
             const SizedBox(height: 16),
             TextFormField(controller: _qualityController, decoration: const InputDecoration(labelText: 'Quality / Remarks', border: OutlineInputBorder())),
-
             const SizedBox(height: 32),
-            if (_errorMessage != null) Padding(padding: const EdgeInsets.only(bottom: 16.0), child: Text(_errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
             SizedBox(width: double.infinity, height: 50, child: ElevatedButton(onPressed: _isLoading ? null : _submitUpdate, style: ElevatedButton.styleFrom(backgroundColor: Colors.indigo, foregroundColor: Colors.white), child: _isLoading ? const CircularProgressIndicator(color: Colors.white) : const Text('Save Changes', style: TextStyle(fontSize: 18)))),
 
             const SizedBox(height: 40),
             const Divider(thickness: 2),
 
-            // --- 4. TRANSACTION LOG ---
+            // --- TRANSACTION LOG SECTION ---
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("Transaction Log", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                TextButton.icon(
-                  onPressed: _showAddTransactionDialog,
-                  icon: const Icon(Icons.add_circle_outline, size: 20),
-                  label: const Text("Manual Log"),
-                  style: TextButton.styleFrom(foregroundColor: Colors.blue[800]),
-                ),
+                const Text("Transaction Log", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                TextButton.icon(onPressed: _showAddTransactionDialog, icon: const Icon(Icons.add_circle_outline), label: const Text("Manual Log"))
               ],
             ),
             const SizedBox(height: 8),
             _isLoadingTxs
                 ? const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
-                : _transactions.isEmpty
-                ? const Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No transactions recorded.", style: TextStyle(color: Colors.grey))))
                 : ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -372,18 +345,18 @@ class _EditLoanPageState extends State<EditLoanPage> {
                 return ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
-                  leading: CircleAvatar(
-                    backgroundColor: tx.color.withOpacity(0.1),
-                    child: Icon(tx.icon, color: tx.color, size: 18),
-                  ),
+                  leading: CircleAvatar(backgroundColor: tx.color.withOpacity(0.1), child: Icon(tx.icon, color: tx.color, size: 18)),
                   title: Text(tx.paymentType.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
                   subtitle: Text(tx.formattedDate),
-                  trailing: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(tx.formattedAmount, style: TextStyle(color: tx.color, fontWeight: FontWeight.bold)),
-                      Text(tx.changedByUsername ?? 'sys', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                      Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisAlignment: MainAxisAlignment.center, children: [
+                        Text(tx.formattedAmount, style: TextStyle(color: tx.color, fontWeight: FontWeight.bold)),
+                        Text(tx.changedByUsername ?? 'sys', style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                      ]),
+                      // TRASH ICON
+                      IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red, size: 20), onPressed: () => _deleteTransaction(tx.id))
                     ],
                   ),
                 );

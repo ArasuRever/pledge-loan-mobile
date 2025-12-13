@@ -1,3 +1,4 @@
+// lib/pages/sell_loan_page.dart
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -5,12 +6,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:signature/signature.dart';
 import 'package:pledge_loan_mobile/services/api_service.dart';
+import 'package:pledge_loan_mobile/models/loan_detail_model.dart'; // REQUIRED IMPORT
 
 class SellLoanPage extends StatefulWidget {
-  final int loanId;
-  final String currentAmountDue;
+  final LoanDetail loan; // REQUIRED: Pass full object for calculation
 
-  const SellLoanPage({super.key, required this.loanId, required this.currentAmountDue});
+  const SellLoanPage({super.key, required this.loan});
 
   @override
   State<SellLoanPage> createState() => _SellLoanPageState();
@@ -30,6 +31,13 @@ class _SellLoanPageState extends State<SellLoanPage> {
   File? _capturedPhoto;
   bool _isLoading = false;
   final ApiService _apiService = ApiService();
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen to changes to update the "Total Value" calculation in real-time
+    _salePriceController.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
@@ -66,7 +74,7 @@ class _SellLoanPageState extends State<SellLoanPage> {
       await signatureFile.writeAsBytes(data);
 
       await _apiService.forfeitLoan(
-        loanId: widget.loanId,
+        loanId: widget.loan.id,
         salePrice: _salePriceController.text,
         notes: _notesController.text,
         signatureFile: signatureFile,
@@ -85,6 +93,14 @@ class _SellLoanPageState extends State<SellLoanPage> {
 
   @override
   Widget build(BuildContext context) {
+    // Extract Financials
+    final principal = double.tryParse(widget.loan.calculated.outstandingPrincipal) ?? 0.0;
+    final interest = double.tryParse(widget.loan.calculated.outstandingInterest) ?? 0.0;
+
+    // Dynamic Calculation
+    final salePrice = double.tryParse(_salePriceController.text) ?? 0.0;
+    final totalValue = salePrice + principal + interest;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Sell / Forfeit Item'), backgroundColor: Colors.red[800], foregroundColor: Colors.white),
       body: SingleChildScrollView(
@@ -94,18 +110,35 @@ class _SellLoanPageState extends State<SellLoanPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Summary Card
+              // --- VALUATION SUMMARY CARD ---
               Container(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.red.withOpacity(0.3))),
-                child: Row(children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.red, size: 32),
-                  const SizedBox(width: 12),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text("Outstanding Balance", style: TextStyle(fontSize: 12, color: Colors.red)),
-                    Text("₹${widget.currentAmountDue}", style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.red)),
-                  ])),
-                ]),
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.red.withOpacity(0.3)),
+                ),
+                child: Column(
+                  children: [
+                    Row(children: const [
+                      Icon(Icons.calculate, color: Colors.red),
+                      SizedBox(width: 8),
+                      Text("Valuation Summary", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
+                    ]),
+                    const Divider(color: Colors.red),
+                    _summaryRow("Sale Price", salePrice),
+                    _summaryRow("Principal", principal),
+                    _summaryRow("Interest", interest),
+                    const Divider(color: Colors.red),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text("Total (Sale+P+I)", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text("₹${totalValue.toStringAsFixed(0)}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.red)),
+                      ],
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 24),
 
@@ -164,6 +197,19 @@ class _SellLoanPageState extends State<SellLoanPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _summaryRow(String label, double val) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13)),
+          Text("₹${val.toStringAsFixed(0)}", style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }
